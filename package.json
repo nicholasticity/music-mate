@@ -1,0 +1,14 @@
+{
+  "name": "music-player",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared YouTube listening rooms with a floating mini-player",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "socket.io": "^4.8.0"
+  }
+}

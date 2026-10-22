@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#14141c">
+  <title>Listen Together</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Landing: create or join a room -->
+  <section id="landing" class="card center" hidden>
+    <h1>Listen Together</h1>
+    <p class="muted">Create a room, share the link, and play YouTube music in sync.</p>
+    <button id="create-room" class="primary big">Create a room</button>
+    <form id="join-code-form" class="row">
+      <input id="join-code" placeholder="or enter a room code" autocomplete="off">
+      <button type="submit">Join</button>
+    </form>
+  </section>
+
+  <!-- Join prompt: the click here also unlocks audio autoplay -->
+  <section id="join" class="card center" hidden>
+    <h1>Join room</h1>
+    <p class="muted">Room <strong id="join-room-id"></strong></p>
+    <form id="join-form" class="col">
+      <input id="join-name" placeholder="Your name" maxlength="30" required autocomplete="nickname">
+      <button type="submit" class="primary big">Join &amp; listen</button>
+    </form>
+  </section>
+
+  <!-- Room view -->
+  <main id="room" hidden>
+    <div id="pip-placeholder" class="card center" hidden>
+      <p>Playing in the floating window.</p>
+      <button id="pip-return">Bring it back</button>
+    </div>
+
+    <div id="app">
+      <header class="row header">
+        <div class="room-title">
+          <span class="muted small">Room</span>
+          <strong id="room-id"></strong>
+        </div>
+        <div class="row gap-s">
+          <button id="copy-link" title="Copy invite link">Invite</button>
+          <button id="pop-out" title="Open a floating always-on-top player">Float</button>
+        </div>
+      </header>
+
+      <div class="now-card">
+        <div class="art">
+          <img id="art" alt="" hidden>
+          <div id="art-empty" class="art-empty">♪</div>
+          <button id="sync-btn" class="art-overlay" hidden>Tap to start audio</button>
+        </div>
+        <div class="now">
+          <div id="now-title" class="now-title">Nothing playing</div>
+          <div id="now-meta" class="muted small">Paste a YouTube link below to start</div>
+        </div>
+      </div>
+
+      <!-- Audio comes from a YouTube player that is rendered but invisible
+           (browsers may stop loading media in display:none or tiny frames). -->
+      <div class="player-host" aria-hidden="true"><div id="player"></div></div>
+
+      <div class="row controls">
+        <button id="toggle" class="primary round" title="Play / pause">▶</button>
+        <button id="skip" class="round" title="Skip">⏭</button>
+        <span id="time-cur" class="muted small mono">0:00</span>
+        <input id="seek" type="range" min="0" max="0" step="1" value="0">
+        <span id="time-dur" class="muted small mono">0:00</span>
+      </div>
+
+      <form id="add-form" class="row">
+        <input id="add-url" placeholder="Paste a YouTube link…" autocomplete="off">
+        <button type="submit" class="primary">Add</button>
+      </form>
+      <div id="add-error" class="error small" hidden></div>
+
+      <h2 class="section">Up next</h2>
+      <ol id="queue" class="queue"></ol>
+      <p id="queue-empty" class="muted small">Queue is empty.</p>
+
+      <h2 class="section hide-in-pip">Listening</h2>
+      <div id="members" class="members hide-in-pip"></div>
+    </div>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

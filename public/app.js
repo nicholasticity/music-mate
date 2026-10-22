@@ -1,0 +1,429 @@
+(() => {
+  const DRIFT_TOLERANCE = 1.5; // seconds of drift before we re-seek
+  const TICK_MS = 500;
+  const LOAD_GRACE_MS = 6000; // time a fresh player gets before we suspect blocked autoplay
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    landing: $('landing'), join: $('join'), room: $('room'), app: $('app'),
+    createRoom: $('create-room'), joinCodeForm: $('join-code-form'), joinCode: $('join-code'),
+    joinForm: $('join-form'), joinName: $('join-name'), joinRoomId: $('join-room-id'),
+    roomId: $('room-id'), copyLink: $('copy-link'), popOut: $('pop-out'),
+    pipPlaceholder: $('pip-placeholder'), pipReturn: $('pip-return'),
+    playerContainer: $('player'), art: $('art'), artEmpty: $('art-empty'), syncBtn: $('sync-btn'),
+    nowTitle: $('now-title'), nowMeta: $('now-meta'),
+    toggle: $('toggle'), skip: $('skip'), seek: $('seek'), timeCur: $('time-cur'), timeDur: $('time-dur'),
+    addForm: $('add-form'), addUrl: $('add-url'), addError: $('add-error'),
+    queue: $('queue'), queueEmpty: $('queue-empty'), members: $('members'), toast: $('toast'),
+  };
+
+  const roomMatch = location.pathname.match(/^\/r\/([\w-]{3,40})\/?$/);
+  const roomId = roomMatch && roomMatch[1];
+
+  // ---------- Landing ----------
+  if (!roomId) {
+    els.landing.hidden = false;
+    els.createRoom.addEventListener('click', () => {
+      location.href = `/r/${randomRoomId()}`;
+    });
+    els.joinCodeForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const code = els.joinCode.value.trim().replace(/^.*\/r\//, '');
+      if (/^[\w-]{3,40}$/.test(code)) location.href = `/r/${code}`;
+    });
+    return;
+  }
+
+  // ---------- Join prompt ----------
+  els.joinRoomId.textContent = roomId;
+  els.joinName.value = localStorage.getItem('name') || '';
+  els.join.hidden = false;
+  els.joinName.focus();
+  els.joinForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = els.joinName.value.trim() || 'Guest';
+    localStorage.setItem('name', name);
+    els.join.hidden = true;
+    els.room.hidden = false;
+    enterRoom(name);
+  });
+
+  // ---------- Room ----------
+  let socket;
+  let state = null;
+  let clockOffset = 0; // serverTime - localTime
+
+  let player = null;
+  let playerReady = false;
+  let loadedItemId = null;
+  let stuckTicks = 0;
+  let loadGraceUntil = 0;
+  let seeking = false;
+  let pipWindow = null;
+  let mountGeneration = 0;
+
+  function enterRoom(name) {
+    els.roomId.textContent = roomId;
+    if (!('documentPictureInPicture' in window)) {
+      els.popOut.disabled = true;
+      els.popOut.title = 'Floating window needs desktop Chrome or Edge';
+    }
+
+    socket = io();
+    socket.on('connect', async () => {
+      await syncClock();
+      socket.emit('join', { roomId, name });
+    });
+    socket.on('state', (next) => {
+      state = next;
+      render();
+      applyState();
+    });
+
+    mountPlayer(window, els.playerContainer);
+    setInterval(tick, TICK_MS);
+    bindControls();
+  }
+
+  // Estimate the server clock offset from a few round trips, keeping the fastest.
+  async function syncClock() {
+    let best = null;
+    for (let i = 0; i < 5; i++) {
+      const sample = await new Promise((resolve) => {
+        const sent = Date.now();
+        socket.emit('time', sent, ({ serverTime }) => {
+          const rtt = Date.now() - sent;
+          resolve({ rtt, offset: serverTime - (sent + rtt / 2) });
+        });
+      });
+      if (!best || sample.rtt < best.rtt) best = sample;
+    }
+    clockOffset = best.offset;
+  }
+
+  function expectedPosition() {
+    if (!state || !state.current) return 0;
+    if (!state.playing) return state.position;
+    return state.position + (Date.now() + clockOffset - state.updatedAt) / 1000;
+  }
+
+  // ---------- YouTube player ----------
+  // The IFrame API is loaded into whichever window hosts the player, so the
+  // same code works for the main page and the Picture-in-Picture window.
+  function loadYouTubeApi(win) {
+    return new Promise((resolve) => {
+      if (win.YT && win.YT.Player) return resolve(win.YT);
+      win.onYouTubeIframeAPIReady = () => resolve(win.YT);
+      const script = win.document.createElement('script');
+      script.src = 'https://www.youtube.com/iframe_api';
+      win.document.head.appendChild(script);
+    });
+  }
+
+  function destroyPlayer() {
+    if (player) {
+      try { player.destroy(); } catch { /* window may already be gone */ }
+    }
+    player = null;
+    playerReady = false;
+    loadedItemId = null;
+  }
+
+  async function mountPlayer(win, container) {
+    destroyPlayer();
+    const generation = ++mountGeneration;
+    const YT = await loadYouTubeApi(win);
+    if (generation !== mountGeneration || win.closed) return; // superseded
+    const target = win.document.createElement('div');
+    container.replaceChildren(target);
+    player = new YT.Player(target, {
+      width: '100%',
+      height: '100%',
+      playerVars: {
+        controls: 0,
+        disablekb: 1,
+        playsinline: 1,
+        rel: 0,
+        origin: location.origin,
+      },
+      events: {
+        onReady: () => {
+          playerReady = true;
+          applyState();
+        },
+        onStateChange: (e) => {
+          if (e.data === YT.PlayerState.ENDED && loadedItemId) {
+            socket.emit('ended', { itemId: loadedItemId });
+          }
+          if (e.data === YT.PlayerState.PLAYING) {
+            stuckTicks = 0;
+            els.syncBtn.hidden = true;
+          }
+        },
+        onError: (e) => {
+          console.warn('YouTube player error', e.data);
+          toast('This video can’t play here.');
+          if (loadedItemId) socket.emit('videoError', { itemId: loadedItemId });
+        },
+      },
+    });
+  }
+
+  // Make the local player match the shared room state.
+  function applyState() {
+    if (!playerReady || !state) return;
+    const { current, playing } = state;
+
+    if (!current) {
+      if (loadedItemId) player.stopVideo();
+      loadedItemId = null;
+      return;
+    }
+
+    const expected = expectedPosition();
+    if (loadedItemId !== current.id) {
+      loadedItemId = current.id;
+      loadGraceUntil = Date.now() + LOAD_GRACE_MS;
+      const opts = { videoId: current.videoId, startSeconds: expected };
+      if (playing) player.loadVideoById(opts);
+      else player.cueVideoById(opts);
+      return;
+    }
+
+    const playerState = player.getPlayerState();
+    if (Math.abs(player.getCurrentTime() - expected) > DRIFT_TOLERANCE) {
+      player.seekTo(expected, true);
+    }
+    if (playing && playerState !== 1 && playerState !== 3) player.playVideo();
+    if (!playing && (playerState === 1 || playerState === 3)) player.pauseVideo();
+  }
+
+  function tick() {
+    if (!state) return;
+    applyState();
+    updateProgress();
+
+    // Browsers may block autoplay (e.g. after a reload). If we should be
+    // playing but aren't, offer a button so the user can unlock audio.
+    if (playerReady && state.current && state.playing && Date.now() > loadGraceUntil) {
+      const s = player.getPlayerState();
+      stuckTicks = (s === -1 || s === 2 || s === 5) ? stuckTicks + 1 : 0;
+      if (stuckTicks > 4) els.syncBtn.hidden = false;
+    } else {
+      stuckTicks = 0;
+      els.syncBtn.hidden = true;
+    }
+  }
+
+  // ---------- Rendering ----------
+  function render() {
+    const { current, queue, members, playing } = state;
+
+    if (current && els.art.getAttribute('src') !== thumbnailUrl(current.videoId)) {
+      els.art.src = thumbnailUrl(current.videoId);
+    }
+    els.art.hidden = !current;
+    els.artEmpty.hidden = !!current;
+    els.nowTitle.textContent = current ? current.title : 'Nothing playing';
+    els.nowMeta.textContent = current
+      ? [current.author, `added by ${current.addedBy}`].filter(Boolean).join(' · ')
+      : 'Paste a YouTube link below to start';
+    els.toggle.textContent = playing ? '⏸' : '▶';
+    els.toggle.disabled = !current;
+    els.skip.disabled = !current;
+    els.seek.disabled = !current;
+
+    els.queue.replaceChildren(...queue.map(renderQueueItem));
+    els.queueEmpty.hidden = queue.length > 0;
+
+    els.members.replaceChildren(...members.map((name) => {
+      const chip = document.createElement('span');
+      chip.textContent = name;
+      return chip;
+    }));
+
+    updateProgress();
+  }
+
+  function renderQueueItem(item) {
+    const li = document.createElement('li');
+    const img = document.createElement('img');
+    img.src = thumbnailUrl(item.videoId);
+    img.alt = '';
+    const info = document.createElement('div');
+    info.className = 'info';
+    const title = document.createElement('div');
+    title.className = 'title';
+    title.textContent = item.title;
+    const meta = document.createElement('div');
+    meta.className = 'muted small';
+    meta.textContent = `added by ${item.addedBy}`;
+    info.append(title, meta);
+
+    const playNow = document.createElement('button');
+    playNow.textContent = 'Play';
+    playNow.addEventListener('click', () => socket.emit('playNow', { itemId: item.id }));
+    const remove = document.createElement('button');
+    remove.textContent = '✕';
+    remove.title = 'Remove';
+    remove.addEventListener('click', () => socket.emit('remove', { itemId: item.id }));
+
+    li.append(img, info, playNow, remove);
+    return li;
+  }
+
+  function updateProgress() {
+    const duration = playerReady && state && state.current ? player.getDuration() || 0 : 0;
+    const position = Math.min(expectedPosition(), duration || Infinity);
+    els.seek.max = Math.floor(duration);
+    if (!seeking) els.seek.value = Math.floor(position);
+    els.timeCur.textContent = formatTime(seeking ? Number(els.seek.value) : position);
+    els.timeDur.textContent = formatTime(duration);
+  }
+
+  // ---------- Controls ----------
+  function bindControls() {
+    els.toggle.addEventListener('click', () => {
+      socket.emit(state && state.playing ? 'pause' : 'play');
+    });
+    els.skip.addEventListener('click', () => socket.emit('skip'));
+
+    els.seek.addEventListener('input', () => {
+      seeking = true;
+      els.timeCur.textContent = formatTime(Number(els.seek.value));
+    });
+    els.seek.addEventListener('change', () => {
+      seeking = false;
+      socket.emit('seek', { position: Number(els.seek.value) });
+    });
+
+    els.syncBtn.addEventListener('click', () => {
+      els.syncBtn.hidden = true;
+      stuckTicks = 0;
+      if (playerReady) {
+        player.unMute();
+        player.seekTo(expectedPosition(), true);
+        player.playVideo();
+      }
+    });
+
+    els.addForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const url = els.addUrl.value.trim();
+      if (!url) return;
+      els.addError.hidden = true;
+      socket.emit('add', { url }, (res) => {
+        if (res && res.error) {
+          els.addError.textContent = res.error;
+          els.addError.hidden = false;
+        } else {
+          els.addUrl.value = '';
+        }
+      });
+    });
+
+    els.copyLink.addEventListener('click', async () => {
+      const link = `${location.origin}/r/${roomId}`;
+      const nav = els.app.ownerDocument.defaultView.navigator;
+      try {
+        if (nav.share && /Mobi|Android/i.test(nav.userAgent)) {
+          await nav.share({ title: 'Listen with me', url: link });
+        } else {
+          await nav.clipboard.writeText(link);
+          toast('Invite link copied!');
+        }
+      } catch {
+        toast(link);
+      }
+    });
+
+    els.popOut.addEventListener('click', togglePip);
+    els.pipReturn.addEventListener('click', () => pipWindow && pipWindow.close());
+  }
+
+  // ---------- Floating window (Document Picture-in-Picture) ----------
+  async function togglePip() {
+    if (pipWindow) {
+      pipWindow.close();
+      return;
+    }
+    let pip;
+    try {
+      pip = await window.documentPictureInPicture.requestWindow({ width: 360, height: 340 });
+    } catch (err) {
+      toast('Could not open floating window.');
+      return;
+    }
+    pipWindow = pip;
+    copyStyles(pip.document);
+    pip.document.title = 'Listen Together';
+    pip.document.body.classList.add('pip');
+
+    // Iframes reload when moved between documents, so rebuild the player there,
+    // inside a same-origin frame so YouTube gets a referrer (see player-frame.html).
+    destroyPlayer();
+    pip.document.body.append(els.app);
+    els.pipPlaceholder.hidden = false;
+    els.popOut.textContent = 'Dock';
+    const frame = pip.document.createElement('iframe');
+    frame.src = '/player-frame.html';
+    frame.allow = 'autoplay; encrypted-media';
+    frame.addEventListener('load', () => {
+      mountPlayer(frame.contentWindow, frame.contentDocument.body);
+    }, { once: true });
+    els.playerContainer.replaceChildren(frame);
+
+    pip.addEventListener('pagehide', () => {
+      destroyPlayer();
+      els.room.append(els.app);
+      els.pipPlaceholder.hidden = true;
+      els.popOut.textContent = 'Float';
+      pipWindow = null;
+      mountPlayer(window, els.playerContainer);
+    });
+  }
+
+  function copyStyles(targetDoc) {
+    for (const sheet of document.styleSheets) {
+      try {
+        const style = targetDoc.createElement('style');
+        style.textContent = [...sheet.cssRules].map((rule) => rule.cssText).join('\n');
+        targetDoc.head.appendChild(style);
+      } catch {
+        if (sheet.href) {
+          const link = targetDoc.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = sheet.href;
+          targetDoc.head.appendChild(link);
+        }
+      }
+    }
+  }
+
+  // ---------- Helpers ----------
+  function thumbnailUrl(videoId) {
+    return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+  }
+
+  function formatTime(seconds) {
+    const s = Math.max(0, Math.floor(seconds || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = String(s % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+  }
+
+  function randomRoomId() {
+    const words = ['amber', 'blue', 'coral', 'dusk', 'echo', 'fern', 'gold', 'haze', 'indigo', 'jade', 'lunar', 'mint', 'neon', 'opal', 'plum', 'ruby', 'sage', 'tidal', 'velvet', 'wild'];
+    const pick = () => words[Math.floor(Math.random() * words.length)];
+    return `${pick()}-${pick()}-${Math.random().toString(36).slice(2, 6)}`;
+  }
+
+  let toastTimer;
+  function toast(message) {
+    els.toast.textContent = message;
+    els.toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { els.toast.hidden = true; }, 2500);
+  }
+})();
