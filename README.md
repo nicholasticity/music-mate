@@ -19,6 +19,13 @@ WebSockets (Render, Railway, Fly.io…) or expose it temporarily with a tunnel, 
 `npx cloudflared tunnel --url http://localhost:3000`. The floating window needs HTTPS
 (localhost is exempt).
 
+## Deploy to Render
+
+`render.yaml` defines the service. In the Render dashboard choose **New → Blueprint**,
+pick this repo, and apply. Keep it to a single instance — rooms are held in memory.
+On the free plan the service sleeps after ~15 minutes without traffic (the first visit
+then takes a while to wake it), and any open rooms are lost when it sleeps or redeploys.
+
 ## How it works
 
 - `server.js` — Express + Socket.IO. Holds each room's queue and a playback clock
