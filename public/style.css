@@ -151,6 +151,36 @@ input[type="range"] {
 
 .controls { margin-bottom: 14px; }
 
+/* Reactions: tap to send, hold to spam */
+.reactions { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-bottom: 14px; }
+.reactions button {
+  min-width: 0;
+  padding: 6px 0;
+  font-size: 22px;
+  line-height: 1.2;
+  background: var(--panel);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+  transition: transform .08s;
+}
+.reactions button.pressed { transform: scale(1.2); background: var(--panel-2); }
+
+.reaction-layer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 10; }
+.floater {
+  position: absolute;
+  font-size: 28px;
+  transform: translate(-50%, -50%);
+  animation: float-up 2s ease-out forwards;
+  will-change: transform, opacity;
+}
+@keyframes float-up {
+  0% { transform: translate(-50%, -50%) scale(.6); opacity: 0; }
+  10% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--drift)), calc(-50% - var(--rise))) scale(.9); opacity: 0; }
+}
+
 .queue { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .queue li {
   display: flex;
@@ -189,5 +219,8 @@ body.pip .art-empty { font-size: 26px; }
 body.pip .art-overlay { font-size: 11px; padding: 4px; }
 body.pip .now-title { font-size: 14px; }
 body.pip .controls { margin-bottom: 10px; }
+body.pip .reactions { gap: 4px; margin-bottom: 10px; }
+body.pip .reactions button { font-size: 17px; padding: 4px 0; }
+body.pip .floater { font-size: 22px; }
 body.pip h2.section { margin: 12px 0 6px; }
 body.pip .hide-in-pip { display: none; }

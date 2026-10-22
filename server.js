@@ -6,6 +6,13 @@ const { Server } = require('socket.io');
 
 const PORT = process.env.PORT || 3000;
 const ROOM_TTL_MS = 30 * 60 * 1000; // keep empty rooms around for 30 min
+// Keep in sync with the buttons in index.html.
+const REACTIONS = [
+  '🔥', '❤️', '😂', '👏', '🎉', '😭', '💀', '🕺',
+  '🥰', '😍', '😘', '💕', '💖', '🫶', '💋', '🌹',
+];
+const REACTION_RATE = 10;  // reactions per second each person can sustain
+const REACTION_BURST = 20; // short bursts allowed above the rate
 
 const app = express();
 const server = http.createServer(app);
@@ -112,6 +119,8 @@ async function fetchTitle(videoId) {
 
 io.on('connection', (socket) => {
   let room = null;
+  let reactionTokens = REACTION_BURST;
+  let tokensRefilledAt = Date.now();
 
   socket.on('time', (clientTime, ack) => {
     if (typeof ack === 'function') ack({ clientTime, serverTime: Date.now() });
@@ -211,6 +220,18 @@ io.on('connection', (socket) => {
     if (!room) return;
     room.queue = room.queue.filter((item) => item.id !== itemId);
     broadcast(room);
+  });
+
+  // Reactions are fire-and-forget: relayed to everyone else, never stored.
+  // The sender already shows its own reaction locally.
+  socket.on('react', ({ emoji } = {}) => {
+    if (!room || !REACTIONS.includes(emoji)) return;
+    const now = Date.now();
+    reactionTokens = Math.min(REACTION_BURST, reactionTokens + ((now - tokensRefilledAt) / 1000) * REACTION_RATE);
+    tokensRefilledAt = now;
+    if (reactionTokens < 1) return;
+    reactionTokens -= 1;
+    socket.to(room.id).emit('react', { emoji });
   });
 
   socket.on('disconnect', () => {

@@ -2,6 +2,8 @@
   const DRIFT_TOLERANCE = 1.5; // seconds of drift before we re-seek
   const TICK_MS = 500;
   const LOAD_GRACE_MS = 6000; // time a fresh player gets before we suspect blocked autoplay
+  const SPAM_INTERVAL_MS = 110; // repeat rate while a reaction is held (server allows ~10/s)
+  const MAX_FLOATERS = 60;      // cap on reactions animating at once
 
   const $ = (id) => document.getElementById(id);
   const els = {
@@ -15,6 +17,7 @@
     toggle: $('toggle'), skip: $('skip'), seek: $('seek'), timeCur: $('time-cur'), timeDur: $('time-dur'),
     addForm: $('add-form'), addUrl: $('add-url'), addError: $('add-error'),
     queue: $('queue'), queueEmpty: $('queue-empty'), members: $('members'), toast: $('toast'),
+    reactions: $('reactions'), reactionLayer: $('reaction-layer'),
   };
 
   const roomMatch = location.pathname.match(/^\/r\/([\w-]{3,40})\/?$/);
@@ -61,6 +64,8 @@
   let seeking = false;
   let pipWindow = null;
   let mountGeneration = 0;
+  let spamTimer = null;
+  let spamButton = null;
 
   function enterRoom(name) {
     els.roomId.textContent = roomId;
@@ -79,6 +84,7 @@
       render();
       applyState();
     });
+    socket.on('react', ({ emoji }) => spawnReaction(emoji));
 
     mountPlayer(window, els.playerContainer);
     setInterval(tick, TICK_MS);
@@ -337,8 +343,71 @@
       }
     });
 
+    bindReactions();
+
     els.popOut.addEventListener('click', togglePip);
     els.pipReturn.addEventListener('click', () => pipWindow && pipWindow.close());
+  }
+
+  // ---------- Reactions ----------
+  function bindReactions() {
+    for (const button of els.reactions.querySelectorAll('button')) {
+      button.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        startSpam(button);
+      });
+      // Keyboard activation (Enter/Space) sends a single reaction.
+      button.addEventListener('click', (e) => {
+        if (e.detail === 0) sendReaction(button.dataset.emoji);
+      });
+      button.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+    for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
+      els.reactions.addEventListener(type, stopSpam);
+    }
+  }
+
+  function startSpam(button) {
+    stopSpam();
+    spamButton = button;
+    button.classList.add('pressed');
+    sendReaction(button.dataset.emoji);
+    spamTimer = setInterval(() => sendReaction(button.dataset.emoji), SPAM_INTERVAL_MS);
+  }
+
+  function stopSpam() {
+    clearInterval(spamTimer);
+    spamTimer = null;
+    if (spamButton) spamButton.classList.remove('pressed');
+    spamButton = null;
+  }
+
+  function sendReaction(emoji) {
+    spawnReaction(emoji);
+    socket.emit('react', { emoji });
+  }
+
+  // Float an emoji up from its button. Works in whichever document hosts the app.
+  function spawnReaction(emoji) {
+    const doc = els.app.ownerDocument;
+    // Animations don't run in hidden tabs, so floaters would just pile up.
+    if (doc.visibilityState === 'hidden') return;
+    const button = [...els.reactions.children].find((b) => b.dataset.emoji === emoji);
+    if (!button) return;
+    while (els.reactionLayer.childElementCount >= MAX_FLOATERS) {
+      els.reactionLayer.firstElementChild.remove();
+    }
+    const rect = button.getBoundingClientRect();
+    const floater = doc.createElement('span');
+    floater.className = 'floater';
+    floater.textContent = emoji;
+    floater.style.left = `${rect.left + rect.width / 2 + (Math.random() - 0.5) * 30}px`;
+    floater.style.top = `${rect.top}px`;
+    floater.style.setProperty('--drift', `${(Math.random() - 0.5) * 140}px`);
+    floater.style.setProperty('--rise', `${200 + Math.random() * 180}px`);
+    floater.style.animationDuration = `${1.6 + Math.random() * 0.8}s`;
+    floater.addEventListener('animationend', () => floater.remove());
+    els.reactionLayer.append(floater);
   }
 
   // ---------- Floating window (Document Picture-in-Picture) ----------
@@ -349,7 +418,7 @@
     }
     let pip;
     try {
-      pip = await window.documentPictureInPicture.requestWindow({ width: 360, height: 340 });
+      pip = await window.documentPictureInPicture.requestWindow({ width: 360, height: 430 });
     } catch (err) {
       toast('Could not open floating window.');
       return;
@@ -362,6 +431,8 @@
     // Iframes reload when moved between documents, so rebuild the player there,
     // inside a same-origin frame so YouTube gets a referrer (see player-frame.html).
     destroyPlayer();
+    stopSpam();
+    els.reactionLayer.replaceChildren();
     pip.document.body.append(els.app);
     els.pipPlaceholder.hidden = false;
     els.popOut.textContent = 'Dock';
@@ -374,6 +445,8 @@
     els.playerContainer.replaceChildren(frame);
 
     pip.addEventListener('pagehide', () => {
+      stopSpam();
+      els.reactionLayer.replaceChildren();
       destroyPlayer();
       els.room.append(els.app);
       els.pipPlaceholder.hidden = true;
