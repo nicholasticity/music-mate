@@ -4,6 +4,7 @@
   const LOAD_GRACE_MS = 6000; // time a fresh player gets before we suspect blocked autoplay
   const SPAM_INTERVAL_MS = 110; // repeat rate while a reaction is held (server allows ~10/s)
   const MAX_FLOATERS = 60;      // cap on reactions animating at once
+  const MESSAGE_GAP_MS = 900;   // stagger messages so they don't stack on each other
 
   const $ = (id) => document.getElementById(id);
   const els = {
@@ -18,6 +19,7 @@
     addForm: $('add-form'), addUrl: $('add-url'), addError: $('add-error'),
     queue: $('queue'), queueEmpty: $('queue-empty'), members: $('members'), toast: $('toast'),
     reactions: $('reactions'), reactionLayer: $('reaction-layer'),
+    messageForm: $('message-form'), messageInput: $('message-input'),
   };
 
   const roomMatch = location.pathname.match(/^\/r\/([\w-]{3,40})\/?$/);
@@ -66,25 +68,26 @@
   let mountGeneration = 0;
   let spamTimer = null;
   let spamButton = null;
+  let nextMessageAt = 0;
 
   function enterRoom(name) {
     els.roomId.textContent = roomId;
-    if (!('documentPictureInPicture' in window)) {
-      els.popOut.disabled = true;
-      els.popOut.title = 'Floating window needs desktop Chrome or Edge';
-    }
+    // The floating window only exists on desktop Chrome/Edge; hide it elsewhere
+    // (a disabled button's tooltip never shows on touch screens).
+    els.popOut.hidden = !('documentPictureInPicture' in window);
 
-    socket = io();
-    socket.on('connect', async () => {
-      await syncClock();
-      socket.emit('join', { roomId, name });
-    });
+    // Room and name travel with the connection, so the server has us in the
+    // room before handling anything we send. The playback tick corrects any
+    // drift once the clock offset is known.
+    socket = io({ auth: { roomId, name } });
+    socket.on('connect', syncClock);
     socket.on('state', (next) => {
       state = next;
       render();
       applyState();
     });
     socket.on('react', ({ emoji }) => spawnReaction(emoji));
+    socket.on('message', ({ text, from }) => spawnMessage(text, from));
 
     mountPlayer(window, els.playerContainer);
     setInterval(tick, TICK_MS);
@@ -345,6 +348,20 @@
 
     bindReactions();
 
+    els.messageForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = els.messageInput.value.trim();
+      if (!text) return;
+      socket.emit('message', { text }, (res) => {
+        if (res && res.error) {
+          toast(res.error);
+        } else {
+          els.messageInput.value = '';
+          spawnMessage(res.text, 'You');
+        }
+      });
+    });
+
     els.popOut.addEventListener('click', togglePip);
     els.pipReturn.addEventListener('click', () => pipWindow && pipWindow.close());
   }
@@ -394,9 +411,8 @@
     if (doc.visibilityState === 'hidden') return;
     const button = [...els.reactions.children].find((b) => b.dataset.emoji === emoji);
     if (!button) return;
-    while (els.reactionLayer.childElementCount >= MAX_FLOATERS) {
-      els.reactionLayer.firstElementChild.remove();
-    }
+    const reactionFloaters = els.reactionLayer.querySelectorAll('.floater:not(.message-floater)');
+    for (let i = 0; i <= reactionFloaters.length - MAX_FLOATERS; i++) reactionFloaters[i].remove();
     const rect = button.getBoundingClientRect();
     const floater = doc.createElement('span');
     floater.className = 'floater';
@@ -410,6 +426,45 @@
     els.reactionLayer.append(floater);
   }
 
+  // Float a message bubble up once from the message box. Messages that arrive
+  // close together are spaced out so each one stays readable.
+  function spawnMessage(text, from) {
+    const now = Date.now();
+    const delay = Math.max(0, nextMessageAt - now);
+    nextMessageAt = now + delay + MESSAGE_GAP_MS;
+    setTimeout(() => showMessage(text, from), delay);
+  }
+
+  function showMessage(text, from) {
+    const doc = els.app.ownerDocument;
+    if (doc.visibilityState === 'hidden') return;
+    const bubble = doc.createElement('div');
+    bubble.className = 'floater message-floater';
+    const name = doc.createElement('span');
+    name.className = 'from';
+    name.textContent = from;
+    const body = doc.createElement('span');
+    body.textContent = text;
+    bubble.append(name, body);
+
+    const rect = els.messageInput.getBoundingClientRect();
+    const drift = (Math.random() - 0.5) * 60;
+    bubble.style.left = '0px';
+    bubble.style.top = `${rect.top}px`;
+    bubble.style.setProperty('--drift', `${drift}px`);
+    bubble.style.setProperty('--rise', `${260 + Math.random() * 80}px`);
+    bubble.addEventListener('animationend', () => bubble.remove());
+    els.reactionLayer.append(bubble);
+
+    // Pick a random spot across the width where the whole bubble stays on
+    // screen from start to end of its drift (it is centred on `left`).
+    const margin = bubble.offsetWidth / 2 + 12;
+    const min = margin + Math.max(0, -drift);
+    const max = doc.documentElement.clientWidth - margin - Math.max(0, drift);
+    const left = max > min ? min + Math.random() * (max - min) : (min + max) / 2;
+    bubble.style.left = `${left}px`;
+  }
+
   // ---------- Floating window (Document Picture-in-Picture) ----------
   async function togglePip() {
     if (pipWindow) {
@@ -418,7 +473,7 @@
     }
     let pip;
     try {
-      pip = await window.documentPictureInPicture.requestWindow({ width: 360, height: 430 });
+      pip = await window.documentPictureInPicture.requestWindow({ width: 360, height: 440 });
     } catch (err) {
       toast('Could not open floating window.');
       return;

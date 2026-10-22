@@ -5,6 +5,8 @@ hidden and the thumbnail is shown as cover art.
 
 - Create a room, share the link, and everyone hears the same thing in sync.
 - Anyone in the room can paste YouTube links, play/pause, seek, skip, and reorder the queue.
+- Tap a reaction (🥰 😍 😘 💕 💖) to float it up everyone's screen; hold to spam.
+- Send a short message that floats up once as a bubble with your name.
 - **Float** opens an always-on-top mini-player (Document Picture-in-Picture, desktop Chrome/Edge).
 
 ## Run

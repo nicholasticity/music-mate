@@ -74,23 +74,16 @@
 
       <!-- Tap to react, hold to spam. Keep in sync with REACTIONS in server.js. -->
       <div id="reactions" class="reactions">
-        <button type="button" data-emoji="🔥" aria-label="Fire">🔥</button>
-        <button type="button" data-emoji="❤️" aria-label="Love">❤️</button>
-        <button type="button" data-emoji="😂" aria-label="Laugh">😂</button>
-        <button type="button" data-emoji="👏" aria-label="Clap">👏</button>
-        <button type="button" data-emoji="🎉" aria-label="Party">🎉</button>
-        <button type="button" data-emoji="😭" aria-label="Cry">😭</button>
-        <button type="button" data-emoji="💀" aria-label="Dead">💀</button>
-        <button type="button" data-emoji="🕺" aria-label="Dance">🕺</button>
         <button type="button" data-emoji="🥰" aria-label="Adore">🥰</button>
         <button type="button" data-emoji="😍" aria-label="Heart eyes">😍</button>
         <button type="button" data-emoji="😘" aria-label="Blow a kiss">😘</button>
         <button type="button" data-emoji="💕" aria-label="Two hearts">💕</button>
         <button type="button" data-emoji="💖" aria-label="Sparkling heart">💖</button>
-        <button type="button" data-emoji="🫶" aria-label="Heart hands">🫶</button>
-        <button type="button" data-emoji="💋" aria-label="Kiss">💋</button>
-        <button type="button" data-emoji="🌹" aria-label="Rose">🌹</button>
       </div>
+      <form id="message-form" class="row message-form">
+        <input id="message-input" placeholder="Send a sweet message…" maxlength="80" autocomplete="off" enterkeyhint="send">
+        <button type="submit" aria-label="Send message">💌</button>
+      </form>
       <div id="reaction-layer" class="reaction-layer" aria-hidden="true"></div>
 
       <form id="add-form" class="row">
@@ -105,10 +98,11 @@
 
       <h2 class="section hide-in-pip">Listening</h2>
       <div id="members" class="members hide-in-pip"></div>
+
+      <!-- Inside #app so it moves into the floating window too. -->
+      <div id="toast" class="toast" hidden></div>
     </div>
   </main>
-
-  <div id="toast" class="toast" hidden></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/app.js"></script>

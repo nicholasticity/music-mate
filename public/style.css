@@ -152,11 +152,11 @@ input[type="range"] {
 .controls { margin-bottom: 14px; }
 
 /* Reactions: tap to send, hold to spam */
-.reactions { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-bottom: 14px; }
+.reactions { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 14px; }
 .reactions button {
   min-width: 0;
   padding: 6px 0;
-  font-size: 22px;
+  font-size: 26px;
   line-height: 1.2;
   background: var(--panel);
   user-select: none;
@@ -179,6 +179,35 @@ input[type="range"] {
   0% { transform: translate(-50%, -50%) scale(.6); opacity: 0; }
   10% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
   100% { transform: translate(calc(-50% + var(--drift)), calc(-50% - var(--rise))) scale(.9); opacity: 0; }
+}
+
+/* Messages: float up once, slower than reactions so they can be read */
+.message-form { margin-bottom: 14px; }
+.message-form button { font-size: 18px; padding: 7px 12px; }
+.message-floater {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: min(80vw, 280px);
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #ff5fa2, #a35cff);
+  box-shadow: 0 6px 20px rgba(255, 95, 162, .35);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+  overflow-wrap: anywhere;
+  animation-name: float-message;
+  animation-duration: 4s;
+}
+.message-floater .from { font-size: 11px; font-weight: 500; opacity: .85; }
+@keyframes float-message {
+  0% { transform: translate(-50%, -50%) scale(.7); opacity: 0; }
+  8% { transform: translate(-50%, -50%) scale(1.05); opacity: 1; }
+  75% { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--drift)), calc(-50% - var(--rise))) scale(1); opacity: 0; }
 }
 
 .queue { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -220,7 +249,9 @@ body.pip .art-overlay { font-size: 11px; padding: 4px; }
 body.pip .now-title { font-size: 14px; }
 body.pip .controls { margin-bottom: 10px; }
 body.pip .reactions { gap: 4px; margin-bottom: 10px; }
-body.pip .reactions button { font-size: 17px; padding: 4px 0; }
+body.pip .reactions button { font-size: 20px; padding: 4px 0; }
 body.pip .floater { font-size: 22px; }
+body.pip .message-form { margin-bottom: 10px; }
+body.pip .message-floater { font-size: 13px; }
 body.pip h2.section { margin: 12px 0 6px; }
 body.pip .hide-in-pip { display: none; }

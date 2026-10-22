@@ -7,12 +7,12 @@ const { Server } = require('socket.io');
 const PORT = process.env.PORT || 3000;
 const ROOM_TTL_MS = 30 * 60 * 1000; // keep empty rooms around for 30 min
 // Keep in sync with the buttons in index.html.
-const REACTIONS = [
-  '🔥', '❤️', '😂', '👏', '🎉', '😭', '💀', '🕺',
-  '🥰', '😍', '😘', '💕', '💖', '🫶', '💋', '🌹',
-];
+const REACTIONS = ['🥰', '😍', '😘', '💕', '💖'];
 const REACTION_RATE = 10;  // reactions per second each person can sustain
 const REACTION_BURST = 20; // short bursts allowed above the rate
+const MESSAGE_MAX_LENGTH = 80;
+const MESSAGE_RATE = 0.5;  // one message every 2 s sustained...
+const MESSAGE_BURST = 3;   // ...after a few in quick succession
 
 const app = express();
 const server = http.createServer(app);
@@ -72,6 +72,27 @@ function broadcast(room) {
   io.to(room.id).emit('state', publicState(room));
 }
 
+/** Token bucket: returns a function that says whether one more event is allowed. */
+function createRateLimiter(ratePerSecond, burst) {
+  let tokens = burst;
+  let refilledAt = Date.now();
+  return () => {
+    const now = Date.now();
+    tokens = Math.min(burst, tokens + ((now - refilledAt) / 1000) * ratePerSecond);
+    refilledAt = now;
+    if (tokens < 1) return false;
+    tokens -= 1;
+    return true;
+  };
+}
+
+function cleanMessage(text) {
+  if (typeof text !== 'string') return '';
+  const singleLine = text.replace(/\s+/g, ' ').replace(/\p{Cc}/gu, '').trim();
+  // Slice by code points so emoji aren't cut in half.
+  return Array.from(singleLine).slice(0, MESSAGE_MAX_LENGTH).join('');
+}
+
 function setCurrent(room, item) {
   room.current = item;
   room.errorReports.clear();
@@ -119,21 +140,25 @@ async function fetchTitle(videoId) {
 
 io.on('connection', (socket) => {
   let room = null;
-  let reactionTokens = REACTION_BURST;
-  let tokensRefilledAt = Date.now();
+  const allowReaction = createRateLimiter(REACTION_RATE, REACTION_BURST);
+  const allowMessage = createRateLimiter(MESSAGE_RATE, MESSAGE_BURST);
 
   socket.on('time', (clientTime, ack) => {
     if (typeof ack === 'function') ack({ clientTime, serverTime: Date.now() });
   });
 
-  socket.on('join', ({ roomId, name }) => {
-    if (room || typeof roomId !== 'string' || !/^[\w-]{3,40}$/.test(roomId)) return;
-    room = getRoom(roomId);
-    room.emptySince = null;
-    room.members.set(socket.id, String(name || 'Guest').slice(0, 30));
-    socket.join(room.id);
-    broadcast(room);
-  });
+  // The room comes with the connection itself, so a socket is in its room
+  // before any event it sent (even ones buffered while connecting) is handled.
+  const { roomId, name } = socket.handshake.auth || {};
+  if (typeof roomId !== 'string' || !/^[\w-]{3,40}$/.test(roomId)) {
+    socket.disconnect(true);
+    return;
+  }
+  room = getRoom(roomId);
+  room.emptySince = null;
+  room.members.set(socket.id, String(name || 'Guest').slice(0, 30));
+  socket.join(room.id);
+  broadcast(room);
 
   socket.on('add', async ({ url }, ack) => {
     if (!room) return;
@@ -225,13 +250,20 @@ io.on('connection', (socket) => {
   // Reactions are fire-and-forget: relayed to everyone else, never stored.
   // The sender already shows its own reaction locally.
   socket.on('react', ({ emoji } = {}) => {
-    if (!room || !REACTIONS.includes(emoji)) return;
-    const now = Date.now();
-    reactionTokens = Math.min(REACTION_BURST, reactionTokens + ((now - tokensRefilledAt) / 1000) * REACTION_RATE);
-    tokensRefilledAt = now;
-    if (reactionTokens < 1) return;
-    reactionTokens -= 1;
+    if (!room || !REACTIONS.includes(emoji) || !allowReaction()) return;
     socket.to(room.id).emit('react', { emoji });
+  });
+
+  // Messages float up once on everyone's screen; like reactions, never stored.
+  // The sender shows its own copy after the ack, using the cleaned text.
+  socket.on('message', ({ text } = {}, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!room) return;
+    const clean = cleanMessage(text);
+    if (!clean) return reply({ error: 'Type something first.' });
+    if (!allowMessage()) return reply({ error: 'Slow down a little 💕' });
+    socket.to(room.id).emit('message', { text: clean, from: room.members.get(socket.id) || 'Guest' });
+    reply({ ok: true, text: clean });
   });
 
   socket.on('disconnect', () => {
