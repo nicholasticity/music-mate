@@ -43,13 +43,19 @@
           <strong id="room-id"></strong>
         </div>
         <div class="row gap-s">
+          <button id="video-toggle" title="Show or hide the video" aria-label="Video" aria-pressed="true">📺</button>
           <button id="copy-link" title="Copy invite link">Invite</button>
           <button id="pop-out" title="Open a floating always-on-top player">Float</button>
         </div>
       </header>
 
+      <!-- The YouTube player. With video on it shows above the title; with it
+           off it stays rendered but invisible (browsers may stop loading media
+           in display:none or tiny frames) and the cover art shows instead. -->
+      <div id="player-host" class="player-host"><div id="player"></div></div>
+
       <div class="now-card">
-        <div class="art">
+        <div id="art-box" class="art">
           <img id="art" alt="" hidden>
           <div id="art-empty" class="art-empty">♪</div>
           <button id="sync-btn" class="art-overlay" hidden>Tap to start audio</button>
@@ -59,10 +65,6 @@
           <div id="now-meta" class="muted small">Paste a YouTube link below to start</div>
         </div>
       </div>
-
-      <!-- Audio comes from a YouTube player that is rendered but invisible
-           (browsers may stop loading media in display:none or tiny frames). -->
-      <div class="player-host" aria-hidden="true"><div id="player"></div></div>
 
       <div class="row controls">
         <button id="toggle" class="primary round" title="Play / pause">▶</button>
@@ -80,8 +82,13 @@
         <button type="button" data-emoji="💕" aria-label="Two hearts">💕</button>
         <button type="button" data-emoji="💖" aria-label="Sparkling heart">💖</button>
       </div>
+      <!-- Incoming voice messages wait here until tapped; each plays once. -->
+      <div id="voice-tray" class="voice-tray" aria-live="polite"></div>
+
       <form id="message-form" class="row message-form">
         <input id="message-input" placeholder="Send a sweet message…" maxlength="80" autocomplete="off" enterkeyhint="send">
+        <span id="recording-status" class="recording-status" hidden></span>
+        <button type="button" id="voice-btn" class="voice-btn" aria-label="Hold to record a voice message">🎤</button>
         <button type="submit" aria-label="Send message">💌</button>
       </form>
       <div id="reaction-layer" class="reaction-layer" aria-hidden="true"></div>

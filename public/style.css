@@ -148,6 +148,25 @@ input[type="range"] {
   z-index: -1;
 }
 .player-host #player, .player-host iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+/* Video on: show the player full width above the title instead of the cover art.
+   Clicks still pass through, so the shared controls stay the only way to pause. */
+#app.video-on.has-song .player-host {
+  position: relative;
+  left: auto;
+  bottom: auto;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  opacity: 1;
+  z-index: auto;
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+}
+#app.video-on.has-song .art { display: none; }
+.player-host .art-overlay { pointer-events: auto; font-size: 16px; }
+#video-toggle.active { background: var(--accent); }
 
 .controls { margin-bottom: 14px; }
 
@@ -203,6 +222,69 @@ input[type="range"] {
   animation-duration: 4s;
 }
 .message-floater .from { font-size: 11px; font-weight: 500; opacity: .85; }
+
+/* Voice messages: hold 🎤 to record; incoming ones wait in the tray */
+.voice-btn {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.message-form.recording .voice-btn { background: #e5484d; color: #fff; animation: rec-pulse 1s ease-in-out infinite; }
+@keyframes rec-pulse { 50% { transform: scale(1.12); } }
+.recording-status {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: #ff8a8f;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.voice-tray { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.voice-tray:empty { display: none; }
+.voice-note {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ff5fa2, #a35cff);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  animation: voice-pop .35s ease-out;
+}
+/* Playback progress fills the pill from the left */
+.voice-note::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, .25);
+  transform-origin: left;
+  transform: scaleX(var(--progress, 0));
+  pointer-events: none;
+}
+.voice-note.queued { opacity: .75; }
+@keyframes voice-pop {
+  0% { transform: translateY(10px) scale(.6); opacity: 0; }
+  70% { transform: scale(1.06); opacity: 1; }
+  100% { transform: none; }
+}
+.message-floater.emoji-message {
+  display: block;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 40px;
+  line-height: 1.1;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, .35));
+}
 @keyframes float-message {
   0% { transform: translate(-50%, -50%) scale(.7); opacity: 0; }
   8% { transform: translate(-50%, -50%) scale(1.05); opacity: 1; }
@@ -253,5 +335,6 @@ body.pip .reactions button { font-size: 20px; padding: 4px 0; }
 body.pip .floater { font-size: 22px; }
 body.pip .message-form { margin-bottom: 10px; }
 body.pip .message-floater { font-size: 13px; }
+body.pip .message-floater.emoji-message { font-size: 30px; }
 body.pip h2.section { margin: 12px 0 6px; }
 body.pip .hide-in-pip { display: none; }

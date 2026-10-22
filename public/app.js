@@ -5,6 +5,15 @@
   const SPAM_INTERVAL_MS = 110; // repeat rate while a reaction is held (server allows ~10/s)
   const MAX_FLOATERS = 60;      // cap on reactions animating at once
   const MESSAGE_GAP_MS = 900;   // stagger messages so they don't stack on each other
+  const VOICE_MAX_MS = 30000;   // matches VOICE_MAX_SECONDS in server.js
+  const VOICE_MIN_MS = 500;     // shorter presses are treated as accidental
+  const VOICE_EXPIRE_MS = 60000; // untapped voice messages disappear after this
+  const VOICE_TRAY_MAX = 5;
+  const PIP_HEIGHT = 440;       // floating window height with video off...
+  const PIP_VIDEO_EXTRA = 140;  // ...and how much taller it gets with video on
+  const DUCK_LEVEL = 0.2;       // music volume while recording / playing a voice message
+  // Prefer MP4/AAC: it plays everywhere, including iPhones.
+  const VOICE_TYPES = ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
 
   const $ = (id) => document.getElementById(id);
   const els = {
@@ -20,6 +29,8 @@
     queue: $('queue'), queueEmpty: $('queue-empty'), members: $('members'), toast: $('toast'),
     reactions: $('reactions'), reactionLayer: $('reaction-layer'),
     messageForm: $('message-form'), messageInput: $('message-input'),
+    voiceBtn: $('voice-btn'), voiceTray: $('voice-tray'), recordingStatus: $('recording-status'),
+    videoToggle: $('video-toggle'), playerHost: $('player-host'), artBox: $('art-box'),
   };
 
   const roomMatch = location.pathname.match(/^\/r\/([\w-]{3,40})\/?$/);
@@ -69,12 +80,19 @@
   let spamTimer = null;
   let spamButton = null;
   let nextMessageAt = 0;
+  let recording = null;     // in-progress voice recording
+  let voiceNotes = [];      // incoming voice messages in the tray
+  let voicePlaying = null;
+  let savedVolume = null;   // music volume before ducking
+  let videoOn = localStorage.getItem('video') !== 'off';
+  const voiceAudio = new Audio();
 
   function enterRoom(name) {
     els.roomId.textContent = roomId;
     // The floating window only exists on desktop Chrome/Edge; hide it elsewhere
     // (a disabled button's tooltip never shows on touch screens).
     els.popOut.hidden = !('documentPictureInPicture' in window);
+    applyVideoMode();
 
     // Room and name travel with the connection, so the server has us in the
     // room before handling anything we send. The playback tick corrects any
@@ -88,6 +106,7 @@
     });
     socket.on('react', ({ emoji }) => spawnReaction(emoji));
     socket.on('message', ({ text, from }) => spawnMessage(text, from));
+    socket.on('voice', addVoiceNote);
 
     mountPlayer(window, els.playerContainer);
     setInterval(tick, TICK_MS);
@@ -136,6 +155,7 @@
     player = null;
     playerReady = false;
     loadedItemId = null;
+    savedVolume = null; // the next player starts at full volume
   }
 
   async function mountPlayer(win, container) {
@@ -159,6 +179,7 @@
         onReady: () => {
           playerReady = true;
           applyState();
+          updateDuck(); // re-apply if a voice message is playing during a remount
         },
         onStateChange: (e) => {
           if (e.data === YT.PlayerState.ENDED && loadedItemId) {
@@ -225,8 +246,18 @@
   }
 
   // ---------- Rendering ----------
+  function applyVideoMode() {
+    els.app.classList.toggle('video-on', videoOn);
+    els.videoToggle.classList.toggle('active', videoOn);
+    els.videoToggle.setAttribute('aria-pressed', String(videoOn));
+    // The "tap to start audio" button sits over whichever is visible.
+    (videoOn ? els.playerHost : els.artBox).append(els.syncBtn);
+  }
+
   function render() {
     const { current, queue, members, playing } = state;
+
+    els.app.classList.toggle('has-song', !!current);
 
     if (current && els.art.getAttribute('src') !== thumbnailUrl(current.videoId)) {
       els.art.src = thumbnailUrl(current.videoId);
@@ -347,6 +378,7 @@
     });
 
     bindReactions();
+    bindVoice();
 
     els.messageForm.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -360,6 +392,16 @@
           spawnMessage(res.text, 'You');
         }
       });
+    });
+
+    els.videoToggle.addEventListener('click', () => {
+      videoOn = !videoOn;
+      localStorage.setItem('video', videoOn ? 'on' : 'off');
+      applyVideoMode();
+      // Clicks count as a user gesture, which the floating window needs to resize.
+      if (pipWindow) {
+        try { pipWindow.resizeBy(0, videoOn ? PIP_VIDEO_EXTRA : -PIP_VIDEO_EXTRA); } catch { /* user can resize */ }
+      }
     });
 
     els.popOut.addEventListener('click', togglePip);
@@ -439,13 +481,19 @@
     const doc = els.app.ownerDocument;
     if (doc.visibilityState === 'hidden') return;
     const bubble = doc.createElement('div');
-    bubble.className = 'floater message-floater';
-    const name = doc.createElement('span');
-    name.className = 'from';
-    name.textContent = from;
-    const body = doc.createElement('span');
-    body.textContent = text;
-    bubble.append(name, body);
+    if (isEmojiOnly(text)) {
+      // Emoji-only messages float as plain, bigger emoji — no bubble or name.
+      bubble.className = 'floater message-floater emoji-message';
+      bubble.textContent = text;
+    } else {
+      bubble.className = 'floater message-floater';
+      const name = doc.createElement('span');
+      name.className = 'from';
+      name.textContent = from;
+      const body = doc.createElement('span');
+      body.textContent = text;
+      bubble.append(name, body);
+    }
 
     const rect = els.messageInput.getBoundingClientRect();
     const drift = (Math.random() - 0.5) * 60;
@@ -465,6 +513,208 @@
     bubble.style.left = `${left}px`;
   }
 
+  // ---------- Voice messages ----------
+  // Hold 🎤 to record, release to send. Incoming ones wait in the tray until
+  // tapped, play once (one at a time, queued in tap order), then disappear.
+  function bindVoice() {
+    const button = els.voiceBtn;
+    button.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      button.setPointerCapture(e.pointerId); // keep getting events if the finger slides off
+      startRecording();
+    });
+    button.addEventListener('pointerup', () => stopRecording(true));
+    button.addEventListener('pointercancel', () => stopRecording(false));
+    // Keyboard (Enter/Space): first press starts, second press sends.
+    button.addEventListener('click', (e) => {
+      if (e.detail !== 0) return;
+      if (recording) stopRecording(true);
+      else startRecording();
+    });
+    button.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    voiceAudio.addEventListener('timeupdate', () => {
+      if (!voicePlaying) return;
+      const progress = Math.min(1, voiceAudio.currentTime / voicePlaying.duration);
+      voicePlaying.el.style.setProperty('--progress', progress);
+    });
+    voiceAudio.addEventListener('ended', () => voicePlaying && finishVoiceNote(voicePlaying));
+    voiceAudio.addEventListener('error', () => {
+      if (!voicePlaying) return;
+      toast('Couldn’t play that voice message.');
+      finishVoiceNote(voicePlaying);
+    });
+  }
+
+  async function startRecording() {
+    if (recording) return;
+    if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) {
+      toast('Voice messages aren’t supported in this browser.');
+      return;
+    }
+    const rec = { chunks: [], released: false, cancelled: false };
+    recording = rec;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+    } catch {
+      recording = null;
+      toast('Allow microphone access to send voice messages.');
+      return;
+    }
+    // Released while the permission prompt was up: nothing to record yet.
+    if (rec.released) {
+      stream.getTracks().forEach((track) => track.stop());
+      recording = null;
+      toast('Mic ready — hold 🎤 to record.');
+      return;
+    }
+    const mimeType = VOICE_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
+    rec.stream = stream;
+    rec.recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 });
+    rec.recorder.addEventListener('dataavailable', (e) => {
+      if (e.data.size) rec.chunks.push(e.data);
+    });
+    rec.recorder.addEventListener('stop', () => finishRecording(rec));
+    rec.recorder.start();
+    rec.startedAt = Date.now();
+    rec.statusTimer = setInterval(updateRecordingStatus, 200);
+    rec.maxTimer = setTimeout(() => stopRecording(true), VOICE_MAX_MS);
+    setRecordingUi(true);
+    updateDuck();
+  }
+
+  function stopRecording(send) {
+    const rec = recording;
+    if (!rec) return;
+    rec.released = true;
+    if (!rec.recorder) return; // still waiting on the mic permission prompt
+    rec.cancelled = rec.cancelled || !send;
+    if (rec.recorder.state !== 'inactive') rec.recorder.stop();
+  }
+
+  async function finishRecording(rec) {
+    clearInterval(rec.statusTimer);
+    clearTimeout(rec.maxTimer);
+    rec.stream.getTracks().forEach((track) => track.stop());
+    recording = null;
+    setRecordingUi(false);
+    updateDuck();
+
+    const durationMs = Date.now() - rec.startedAt;
+    if (rec.cancelled) return;
+    if (durationMs < VOICE_MIN_MS) {
+      toast('Hold 🎤 to record.');
+      return;
+    }
+    const blob = new Blob(rec.chunks, { type: rec.recorder.mimeType });
+    const audio = await blob.arrayBuffer();
+    const duration = Math.round(Math.min(durationMs, VOICE_MAX_MS) / 100) / 10;
+    socket.emit('voice', { audio, mimeType: blob.type, duration }, (res) => {
+      toast(res && res.error ? res.error : 'Voice message sent 🎤');
+    });
+  }
+
+  function setRecordingUi(on) {
+    els.messageForm.classList.toggle('recording', on);
+    els.messageInput.hidden = on;
+    els.recordingStatus.hidden = !on;
+    if (on) updateRecordingStatus();
+  }
+
+  function updateRecordingStatus() {
+    if (!recording || !recording.startedAt) return;
+    const seconds = (Date.now() - recording.startedAt) / 1000;
+    els.recordingStatus.textContent = `● ${formatTime(seconds)} / ${formatTime(VOICE_MAX_MS / 1000)} · release to send`;
+  }
+
+  function addVoiceNote({ audio, mimeType, duration, from }) {
+    const doc = els.app.ownerDocument;
+    const note = {
+      from,
+      duration,
+      url: URL.createObjectURL(new Blob([audio], { type: mimeType })),
+      state: 'waiting',
+    };
+    note.el = doc.createElement('button');
+    note.el.type = 'button';
+    note.el.className = 'voice-note';
+    note.el.addEventListener('click', () => playVoiceNote(note));
+    note.expireTimer = setTimeout(() => removeVoiceNote(note), VOICE_EXPIRE_MS);
+    voiceNotes.push(note);
+    renderVoiceNote(note);
+    els.voiceTray.append(note.el);
+
+    // Keep the tray small: drop the oldest untouched ones.
+    let waiting = voiceNotes.filter((n) => n.state === 'waiting');
+    while (waiting.length > VOICE_TRAY_MAX) {
+      removeVoiceNote(waiting.shift());
+    }
+  }
+
+  function renderVoiceNote(note) {
+    const icon = { waiting: '▶', queued: '⏳', playing: '🔊' }[note.state];
+    note.el.textContent = `🎤 ${note.from} · ${formatTime(note.duration)} ${icon}`;
+    note.el.classList.toggle('queued', note.state === 'queued');
+    note.el.setAttribute('aria-label', `Voice message from ${note.from}, ${Math.round(note.duration)} seconds. Plays once.`);
+  }
+
+  function playVoiceNote(note) {
+    if (note.state !== 'waiting') return;
+    clearTimeout(note.expireTimer); // tapped ones always get played
+    note.state = 'queued';
+    renderVoiceNote(note);
+    if (!voicePlaying) playNextVoiceNote();
+  }
+
+  function playNextVoiceNote() {
+    const note = voiceNotes.find((n) => n.state === 'queued') || null;
+    voicePlaying = note;
+    updateDuck();
+    if (!note) return;
+    note.state = 'playing';
+    renderVoiceNote(note);
+    // One shared <audio> element: once a tap has unlocked it, later notes in
+    // the queue can play without another tap (needed on iOS).
+    voiceAudio.src = note.url;
+    voiceAudio.play().catch(() => {
+      toast('Couldn’t play that voice message.');
+      finishVoiceNote(note);
+    });
+  }
+
+  function finishVoiceNote(note) {
+    removeVoiceNote(note);
+    if (voicePlaying === note) {
+      voicePlaying = null;
+      playNextVoiceNote();
+    }
+  }
+
+  function removeVoiceNote(note) {
+    if (!voiceNotes.includes(note)) return;
+    clearTimeout(note.expireTimer);
+    URL.revokeObjectURL(note.url);
+    note.el.remove();
+    voiceNotes = voiceNotes.filter((n) => n !== note);
+  }
+
+  // Turn the music down while recording (so the mic doesn't pick it up) and
+  // while a voice message plays; restore the listener's volume afterwards.
+  function updateDuck() {
+    const shouldDuck = !!(recording && recording.recorder) || !!voicePlaying;
+    if (!playerReady) return;
+    if (shouldDuck && savedVolume === null) {
+      savedVolume = player.getVolume();
+      player.setVolume(Math.round(savedVolume * DUCK_LEVEL));
+    } else if (!shouldDuck && savedVolume !== null) {
+      player.setVolume(savedVolume);
+      savedVolume = null;
+    }
+  }
+
   // ---------- Floating window (Document Picture-in-Picture) ----------
   async function togglePip() {
     if (pipWindow) {
@@ -473,7 +723,10 @@
     }
     let pip;
     try {
-      pip = await window.documentPictureInPicture.requestWindow({ width: 360, height: 440 });
+      pip = await window.documentPictureInPicture.requestWindow({
+        width: 360,
+        height: PIP_HEIGHT + (videoOn ? PIP_VIDEO_EXTRA : 0),
+      });
     } catch (err) {
       toast('Could not open floating window.');
       return;
@@ -529,6 +782,14 @@
   }
 
   // ---------- Helpers ----------
+  // True for text made only of emoji (incl. skin tones, flags, ZWJ sequences)
+  // and spaces. Keycap emoji like 1️⃣ contain a digit, so they count as text.
+  const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D\uFE0F\s]+$/u;
+  const HAS_EMOJI = /[\p{Extended_Pictographic}\p{Regional_Indicator}]/u;
+  function isEmojiOnly(text) {
+    return EMOJI_ONLY.test(text) && HAS_EMOJI.test(text);
+  }
+
   function thumbnailUrl(videoId) {
     return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
   }

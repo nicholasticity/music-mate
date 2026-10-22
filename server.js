@@ -13,10 +13,16 @@ const REACTION_BURST = 20; // short bursts allowed above the rate
 const MESSAGE_MAX_LENGTH = 80;
 const MESSAGE_RATE = 0.5;  // one message every 2 s sustained...
 const MESSAGE_BURST = 3;   // ...after a few in quick succession
+const VOICE_MAX_SECONDS = 30;
+const VOICE_MAX_BYTES = 1024 * 1024;
+const VOICE_TYPE = /^audio\/(mp4|webm|ogg)(;[\w.=, -]*)?$/;
+const VOICE_RATE = 0.2;    // one voice message every 5 s sustained...
+const VOICE_BURST = 2;     // ...after a couple in a row
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+// Room for a 30 s voice message (VOICE_MAX_BYTES) plus framing.
+const io = new Server(server, { maxHttpBufferSize: VOICE_MAX_BYTES + 64 * 1024 });
 
 app.use(express.static(path.join(__dirname, 'public')));
 // Every room URL serves the same single-page app.
@@ -142,6 +148,7 @@ io.on('connection', (socket) => {
   let room = null;
   const allowReaction = createRateLimiter(REACTION_RATE, REACTION_BURST);
   const allowMessage = createRateLimiter(MESSAGE_RATE, MESSAGE_BURST);
+  const allowVoice = createRateLimiter(VOICE_RATE, VOICE_BURST);
 
   socket.on('time', (clientTime, ack) => {
     if (typeof ack === 'function') ack({ clientTime, serverTime: Date.now() });
@@ -264,6 +271,25 @@ io.on('connection', (socket) => {
     if (!allowMessage()) return reply({ error: 'Slow down a little 💕' });
     socket.to(room.id).emit('message', { text: clean, from: room.members.get(socket.id) || 'Guest' });
     reply({ ok: true, text: clean });
+  });
+
+  // One-time voice messages: relayed to everyone else, never stored.
+  socket.on('voice', ({ audio, mimeType, duration } = {}, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!room) return;
+    if (!Buffer.isBuffer(audio) || audio.length === 0 || audio.length > VOICE_MAX_BYTES) {
+      return reply({ error: 'That voice message is too big.' });
+    }
+    if (typeof mimeType !== 'string' || mimeType.length > 60 || !VOICE_TYPE.test(mimeType)) {
+      return reply({ error: 'Unsupported audio format.' });
+    }
+    // Allow a little slack over the limit for timer jitter on the sender.
+    if (!Number.isFinite(duration) || duration <= 0 || duration > VOICE_MAX_SECONDS + 1) {
+      return reply({ error: `Voice messages can be up to ${VOICE_MAX_SECONDS} seconds.` });
+    }
+    if (!allowVoice()) return reply({ error: 'Slow down a little 💕' });
+    socket.to(room.id).emit('voice', { audio, mimeType, duration, from: room.members.get(socket.id) || 'Guest' });
+    reply({ ok: true });
   });
 
   socket.on('disconnect', () => {
