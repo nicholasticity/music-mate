@@ -7,7 +7,7 @@ const { Server } = require('socket.io');
 const PORT = process.env.PORT || 3000;
 const ROOM_TTL_MS = 30 * 60 * 1000; // keep empty rooms around for 30 min
 // Keep in sync with the buttons in index.html.
-const REACTIONS = ['🥰', '😍', '😘', '💕', '💖'];
+const REACTIONS = ['🥰', '😍', '😘', '💕', '💖', '😂'];
 const REACTION_RATE = 10;  // reactions per second each person can sustain
 const REACTION_BURST = 20; // short bursts allowed above the rate
 const MESSAGE_MAX_LENGTH = 80;
