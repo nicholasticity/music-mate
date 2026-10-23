@@ -437,10 +437,11 @@ body:not(.pip) #app.video-on.has-song .room-panel {
   left: 0;
   right: 0;
   /* The panel's top edge lands on the bottom of the 16:9 picture, then it
-     shifts up by its own height plus a strip for YouTube's control bar. */
+     shifts up by its own height plus room for YouTube's control bar, which
+     sits about 70px above the bottom of the embed. */
   top: min(100cqb, calc(100cqi * 9 / 16));
   bottom: auto;
-  transform: translateY(calc(-100% - 52px));
+  transform: translateY(calc(-100% - 100px));
   z-index: 5;
   padding:
     72px
