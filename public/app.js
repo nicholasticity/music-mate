@@ -1,6 +1,8 @@
 (() => {
   const DRIFT_TOLERANCE = 1.5; // seconds of drift before we re-seek
   const SEEK_JUMP = 0.75; // a user scrub moves faster than playback; drift does not
+  const USER_GRACE_MS = 1200; // leave a native play, pause, or seek alone after it
+  const SEEK_SETTLE_MS = 400; // wait until a drag stops, then broadcast once
   const TICK_MS = 500;
   const LOAD_GRACE_MS = 6000; // time a fresh player gets before we suspect blocked autoplay
   const SPAM_INTERVAL_MS = 110; // repeat rate while a reaction is held (server allows ~10/s)
@@ -77,11 +79,16 @@
   let loadGraceUntil = 0;
   let seeking = false;
   let lastSample = null;          // { time, at } of the player clock, to spot user seeks
-  let holdSyncUntil = 0;          // don't snap a local play/pause/seek back to the old clock
-  let ignoreSeekUntil = 0;        // programmatic seekTo looks like a jump; don't rebroadcast it
+  let userGraceUntil = 0;         // no drift correction or transport forcing until this time
   let pauseConfirm = null;
-  let sawPlaying = false;        // ignore the pause YouTube fires before playback has started
-  let commandedTime = null;      // where a drift correction told the player to go
+  let seekSettle = null;          // debounce timer for a YouTube scrub
+  let pendingSeekAt = null;
+  let pendingPlay = false;        // local play already sent; wait for the echo
+  let pendingPause = false;
+  let deferredRemote = false;     // a room update arrived during a local grace
+  let sawPlaying = false;         // ignore the pause YouTube fires before playback has started
+  let commandedTime = null;       // where our own seekTo told the player to go
+  let commandUntil = 0;
   let pipWindow = null;
   let mountGeneration = 0;
   let spamTimer = null;
@@ -109,6 +116,8 @@
     socket.on('state', (next) => {
       state = next;
       render();
+      if (pendingPlay && next.playing) pendingPlay = false;
+      if (pendingPause && !next.playing) pendingPause = false;
       applyState();
     });
     socket.on('react', ({ emoji }) => spawnReaction(emoji));
@@ -208,10 +217,14 @@
     });
   }
 
-  // A click on the video changes the player before the room hears about it.
-  // Hold the sync loop until the broadcast comes back so it doesn't undo it.
-  function holdSync(ms = 1500) {
-    holdSyncUntil = Math.max(holdSyncUntil, Date.now() + ms);
+  // A native play, pause, or seek moves the player before the room hears it.
+  // Until the grace passes, the sync loop must not play, pause, or seek it back.
+  function extendGrace(ms = USER_GRACE_MS) {
+    userGraceUntil = Math.max(userGraceUntil, Date.now() + ms);
+  }
+
+  function inGrace() {
+    return Date.now() < userGraceUntil || seekSettle != null || pauseConfirm != null;
   }
 
   function readPlayerTime() {
@@ -222,8 +235,24 @@
     try { return player.getPlayerState(); } catch { return -1; }
   }
 
+  // One seek for a whole drag. Each jump resets the timer and the grace.
+  function queueSeek(position) {
+    pendingSeekAt = position;
+    extendGrace(SEEK_SETTLE_MS + USER_GRACE_MS);
+    clearTimeout(seekSettle);
+    seekSettle = setTimeout(() => {
+      seekSettle = null;
+      const at = pendingSeekAt;
+      pendingSeekAt = null;
+      if (!playerReady || !state || !state.current || !Number.isFinite(at)) return;
+      extendGrace();
+      socket.emit('seek', { position: at });
+    }, SEEK_SETTLE_MS);
+  }
+
   // Play/pause from YouTube's own controls. A seek often pauses for a moment,
-  // so a pause is confirmed only if the player is still paused a beat later.
+  // so a pause is broadcast only if the player is still paused a beat later.
+  // Play and pause each go out once, on the same events as the room's button.
   function reportTransport(code) {
     if (!playerReady || !state || !state.current) return;
     const YTPS = window.YT && window.YT.PlayerState;
@@ -232,79 +261,76 @@
       clearTimeout(pauseConfirm);
       pauseConfirm = null;
       sawPlaying = true;
-      if (Date.now() < ignoreSeekUntil) return;
-      if (!state.playing) {
-        holdSync();
+      // pendingPause covers a pause we already sent whose echo has not
+      // landed yet. A new play still has to be broadcast once.
+      const roomPaused = !state.playing || pendingPause;
+      if (roomPaused && !pendingPlay) {
+        pendingPause = false;
+        pendingPlay = true;
+        extendGrace();
         socket.emit('play');
       }
       return;
     }
-    if (Date.now() < ignoreSeekUntil) return;
-    if (code !== YTPS.PAUSED || !state.playing || !sawPlaying) return;
-    // The sync tick would otherwise see "room is playing" and resume the
-    // video before this pause is confirmed and broadcast.
-    holdSync();
+    // Buffering and unstarted are not a pause or a play. A real pause
+    // settles on PAUSED; a scrub that only blips through it resumes.
+    if (code !== YTPS.PAUSED || !sawPlaying || pendingPause) return;
+    if (!state.playing && !pendingPlay) return;
+    extendGrace();
     const pausedAt = readPlayerTime();
     clearTimeout(pauseConfirm);
     pauseConfirm = setTimeout(() => {
       pauseConfirm = null;
-      if (!playerReady || !state || !state.playing) return;
+      if (!playerReady || !state || pendingPause) return;
+      if (!state.playing && !pendingPlay) return;
       if (readPlayerState() !== YTPS.PAUSED) return;
       const actual = readPlayerTime();
-      if (Math.abs(actual - pausedAt) > 0.4 || Math.abs(actual - expectedPosition()) > DRIFT_TOLERANCE) {
-        holdSync();
-        socket.emit('seek', { position: actual });
-        if (readPlayerState() === YTPS.PAUSED) socket.emit('pause');
-        return;
-      }
-      holdSync();
+      if (Math.abs(actual - pausedAt) > 0.4) queueSeek(actual);
+      pendingPlay = false;
+      pendingPause = true;
+      extendGrace();
       socket.emit('pause');
     }, 280);
   }
 
   // A user seek is a jump in the player clock, not the slow drift the sync
   // loop corrects. Playing time should advance about one tick; anything that
-  // leaps further, or moves while paused, is a seek on YouTube's bar.
+  // leaps further, or moves while paused, is someone moving YouTube's bar.
   function detectUserSeek() {
-    if (!playerReady || !state || !state.current || loadedItemId !== state.current.id) return false;
+    if (!playerReady || !state || !state.current || loadedItemId !== state.current.id) return;
     const now = Date.now();
     const actual = readPlayerTime();
-    if (commandedTime != null && now < ignoreSeekUntil) {
+    if (commandedTime != null) {
       if (Math.abs(actual - commandedTime) <= DRIFT_TOLERANCE) {
         commandedTime = null;
         lastSample = { time: actual, at: now };
-        return false;
+        return;
       }
       const moved = lastSample && Math.abs(actual - lastSample.time) > SEEK_JUMP;
-      if (!moved) {
+      if (!moved && now < commandUntil) {
         lastSample = { time: actual, at: now };
-        return false;
+        return;
       }
       commandedTime = null;
-    } else if (commandedTime != null) {
-      commandedTime = null;
-      if (Math.abs(actual - (lastSample ? lastSample.time : actual)) > DRIFT_TOLERANCE) {
-        lastSample = { time: actual, at: now };
-        return false;
-      }
     }
     let jumped = false;
     if (lastSample) {
       const elapsed = (now - lastSample.at) / 1000;
       const delta = actual - lastSample.time;
       const expectedDelta = state.playing ? elapsed : 0;
-      // Same seek event the room's seek bar sends. Playback itself only
-      // advances about one tick, so a larger leap is someone moving the bar.
       if (delta > expectedDelta + SEEK_JUMP || delta < -SEEK_JUMP) jumped = true;
     }
     lastSample = { time: actual, at: now };
-    if (!jumped) return false;
-    holdSync();
-    socket.emit('seek', { position: actual });
-    return true;
+    if (jumped) queueSeek(actual);
   }
 
-  // Make the local player match the shared room state.
+  function transportAgrees(playerState, playing) {
+    if (playing) return playerState === 1 || playerState === 3;
+    return playerState === 2 || playerState === 5 || playerState === -1 || playerState === 0;
+  }
+
+  // Push the shared room onto this player. Used for someone else's action
+  // and for the echo of our own, never to override a click still in flight.
   function applyState() {
     if (!playerReady || !state) return;
     const { current, playing } = state;
@@ -321,33 +347,51 @@
       loadedItemId = current.id;
       lastSample = null;
       sawPlaying = false;
-      commandedTime = null;
+      commandedTime = expected;
+      commandUntil = Date.now() + 1500;
       loadGraceUntil = Date.now() + LOAD_GRACE_MS;
-      ignoreSeekUntil = Date.now() + 1000;
       const opts = { videoId: current.videoId, startSeconds: expected };
       if (playing) player.loadVideoById(opts);
       else player.cueVideoById(opts);
       return;
     }
 
-    // A native play, pause, or seek is in flight. Forcing the old clock now
-    // would snap it back before the room adopts the new one.
-    if (Date.now() < holdSyncUntil) return;
+    if (inGrace()) {
+      deferredRemote = true;
+      return;
+    }
+    deferredRemote = false;
 
     const playerState = readPlayerState();
     if (Math.abs(readPlayerTime() - expected) > DRIFT_TOLERANCE) {
-      ignoreSeekUntil = Date.now() + 1500;
       commandedTime = expected;
+      commandUntil = Date.now() + 1200;
       player.seekTo(expected, true);
     }
     if (playing && playerState !== 1 && playerState !== 3) player.playVideo();
     if (!playing && (playerState === 1 || playerState === 3)) player.pauseVideo();
   }
 
+  // Only nudge the clock when both sides already agree on play or pause.
+  // A click changes the player first; forcing play or pause here undoes it
+  // before that click can be broadcast.
+  function correctDrift() {
+    if (!playerReady || !state || !state.current || loadedItemId !== state.current.id) return;
+    if (inGrace()) return;
+    const playerState = readPlayerState();
+    if (!transportAgrees(playerState, state.playing)) return;
+    const expected = expectedPosition();
+    if (Math.abs(readPlayerTime() - expected) <= DRIFT_TOLERANCE) return;
+    commandedTime = expected;
+    commandUntil = Date.now() + 1200;
+    player.seekTo(expected, true);
+  }
+
   function tick() {
     if (!state) return;
     detectUserSeek();
-    applyState();
+    if (!inGrace() && deferredRemote) applyState();
+    else correctDrift();
     updateProgress();
 
     // Browsers may block autoplay (e.g. after a reload). If we should be
@@ -431,7 +475,12 @@
 
   function updateProgress() {
     const duration = playerReady && state && state.current ? player.getDuration() || 0 : 0;
-    const position = Math.min(expectedPosition(), duration || Infinity);
+    // While a native scrub is in flight, follow the player instead of the
+    // old room clock so the room's own bar doesn't leap backwards.
+    const live = !seeking && playerReady && state && state.current && (pendingSeekAt != null || Date.now() < userGraceUntil);
+    const position = live
+      ? readPlayerTime()
+      : Math.min(expectedPosition(), duration || Infinity);
     els.seek.max = Math.floor(duration);
     if (!seeking) els.seek.value = Math.floor(position);
     els.timeCur.textContent = formatTime(seeking ? Number(els.seek.value) : position);
