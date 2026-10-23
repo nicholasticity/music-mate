@@ -1,5 +1,8 @@
 (() => {
   const DRIFT_TOLERANCE = 1.5; // seconds of drift before we re-seek
+  const SEEK_JUMP = 0.75; // a user scrub moves faster than playback; drift does not
+  const USER_GRACE_MS = 1200; // leave a native play, pause, or seek alone after it
+  const SEEK_SETTLE_MS = 400; // wait until a drag stops, then broadcast once
   const TICK_MS = 500;
   const LOAD_GRACE_MS = 6000; // time a fresh player gets before we suspect blocked autoplay
   const SPAM_INTERVAL_MS = 110; // repeat rate while a reaction is held (server allows ~10/s)
@@ -9,8 +12,6 @@
   const VOICE_MIN_MS = 500;     // shorter presses are treated as accidental
   const VOICE_EXPIRE_MS = 60000; // untapped voice messages disappear after this
   const VOICE_TRAY_MAX = 5;
-  const PIP_HEIGHT = 440;       // floating window height with video off...
-  const PIP_VIDEO_EXTRA = 140;  // ...and how much taller it gets with video on
   const DUCK_LEVEL = 0.2;       // music volume while recording / playing a voice message
   // Prefer MP4/AAC: it plays everywhere, including iPhones.
   const VOICE_TYPES = ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
@@ -20,8 +21,7 @@
     landing: $('landing'), join: $('join'), room: $('room'), app: $('app'),
     createRoom: $('create-room'), joinCodeForm: $('join-code-form'), joinCode: $('join-code'),
     joinForm: $('join-form'), joinName: $('join-name'), joinRoomId: $('join-room-id'),
-    roomId: $('room-id'), copyLink: $('copy-link'), popOut: $('pop-out'),
-    pipPlaceholder: $('pip-placeholder'), pipReturn: $('pip-return'),
+    roomId: $('room-id'), copyLink: $('copy-link'),
     playerContainer: $('player'), art: $('art'), artEmpty: $('art-empty'), syncBtn: $('sync-btn'),
     nowTitle: $('now-title'), nowMeta: $('now-meta'),
     toggle: $('toggle'), skip: $('skip'), seek: $('seek'), timeCur: $('time-cur'), timeDur: $('time-dur'),
@@ -75,7 +75,17 @@
   let stuckTicks = 0;
   let loadGraceUntil = 0;
   let seeking = false;
-  let pipWindow = null;
+  let lastSample = null;          // { time, at } of the player clock, to spot user seeks
+  let userGraceUntil = 0;         // no drift correction or transport forcing until this time
+  let pauseConfirm = null;
+  let seekSettle = null;          // debounce timer for a YouTube scrub
+  let pendingSeekAt = null;
+  let pendingPlay = false;        // local play already sent; wait for the echo
+  let pendingPause = false;
+  let deferredRemote = false;     // a room update arrived during a local grace
+  let sawPlaying = false;         // ignore the pause YouTube fires before playback has started
+  let commandedTime = null;       // where our own seekTo told the player to go
+  let commandUntil = 0;
   let mountGeneration = 0;
   let spamTimer = null;
   let spamButton = null;
@@ -89,9 +99,6 @@
 
   function enterRoom(name) {
     els.roomId.textContent = roomId;
-    // The floating window only exists on desktop Chrome/Edge; hide it elsewhere
-    // (a disabled button's tooltip never shows on touch screens).
-    els.popOut.hidden = !('documentPictureInPicture' in window);
     applyVideoMode();
 
     // Room and name travel with the connection, so the server has us in the
@@ -102,6 +109,8 @@
     socket.on('state', (next) => {
       state = next;
       render();
+      if (pendingPlay && next.playing) pendingPlay = false;
+      if (pendingPause && !next.playing) pendingPause = false;
       applyState();
     });
     socket.on('react', ({ emoji }) => spawnReaction(emoji));
@@ -136,8 +145,6 @@
   }
 
   // ---------- YouTube player ----------
-  // The IFrame API is loaded into whichever window hosts the player, so the
-  // same code works for the main page and the Picture-in-Picture window.
   function loadYouTubeApi(win) {
     return new Promise((resolve) => {
       if (win.YT && win.YT.Player) return resolve(win.YT);
@@ -169,8 +176,8 @@
       width: '100%',
       height: '100%',
       playerVars: {
-        controls: 0,
-        disablekb: 1,
+        controls: 1,
+        disablekb: 0,
         playsinline: 1,
         rel: 0,
         origin: location.origin,
@@ -178,6 +185,7 @@
       events: {
         onReady: () => {
           playerReady = true;
+          lastSample = null;
           applyState();
           updateDuck(); // re-apply if a voice message is playing during a remount
         },
@@ -189,6 +197,7 @@
             stuckTicks = 0;
             els.syncBtn.hidden = true;
           }
+          reportTransport(e.data);
         },
         onError: (e) => {
           console.warn('YouTube player error', e.data);
@@ -199,7 +208,120 @@
     });
   }
 
-  // Make the local player match the shared room state.
+  // A native play, pause, or seek moves the player before the room hears it.
+  // Until the grace passes, the sync loop must not play, pause, or seek it back.
+  function extendGrace(ms = USER_GRACE_MS) {
+    userGraceUntil = Math.max(userGraceUntil, Date.now() + ms);
+  }
+
+  function inGrace() {
+    return Date.now() < userGraceUntil || seekSettle != null || pauseConfirm != null;
+  }
+
+  function readPlayerTime() {
+    try { return player.getCurrentTime() || 0; } catch { return 0; }
+  }
+
+  function readPlayerState() {
+    try { return player.getPlayerState(); } catch { return -1; }
+  }
+
+  // One seek for a whole drag. Each jump resets the timer and the grace.
+  function queueSeek(position) {
+    pendingSeekAt = position;
+    extendGrace(SEEK_SETTLE_MS + USER_GRACE_MS);
+    clearTimeout(seekSettle);
+    seekSettle = setTimeout(() => {
+      seekSettle = null;
+      const at = pendingSeekAt;
+      pendingSeekAt = null;
+      if (!playerReady || !state || !state.current || !Number.isFinite(at)) return;
+      extendGrace();
+      socket.emit('seek', { position: at });
+    }, SEEK_SETTLE_MS);
+  }
+
+  // Play/pause from YouTube's own controls. A seek often pauses for a moment,
+  // so a pause is broadcast only if the player is still paused a beat later.
+  // Play and pause each go out once, on the same events as the room's button.
+  function reportTransport(code) {
+    if (!playerReady || !state || !state.current) return;
+    const YTPS = window.YT && window.YT.PlayerState;
+    if (!YTPS) return;
+    if (code === YTPS.PLAYING) {
+      clearTimeout(pauseConfirm);
+      pauseConfirm = null;
+      sawPlaying = true;
+      // pendingPause covers a pause we already sent whose echo has not
+      // landed yet. A new play still has to be broadcast once.
+      const roomPaused = !state.playing || pendingPause;
+      if (roomPaused && !pendingPlay) {
+        pendingPause = false;
+        pendingPlay = true;
+        extendGrace();
+        socket.emit('play');
+      }
+      return;
+    }
+    // Buffering and unstarted are not a pause or a play. A real pause
+    // settles on PAUSED; a scrub that only blips through it resumes.
+    if (code !== YTPS.PAUSED || !sawPlaying || pendingPause) return;
+    if (!state.playing && !pendingPlay) return;
+    extendGrace();
+    const pausedAt = readPlayerTime();
+    clearTimeout(pauseConfirm);
+    pauseConfirm = setTimeout(() => {
+      pauseConfirm = null;
+      if (!playerReady || !state || pendingPause) return;
+      if (!state.playing && !pendingPlay) return;
+      if (readPlayerState() !== YTPS.PAUSED) return;
+      const actual = readPlayerTime();
+      if (Math.abs(actual - pausedAt) > 0.4) queueSeek(actual);
+      pendingPlay = false;
+      pendingPause = true;
+      extendGrace();
+      socket.emit('pause');
+    }, 280);
+  }
+
+  // A user seek is a jump in the player clock, not the slow drift the sync
+  // loop corrects. Playing time should advance about one tick; anything that
+  // leaps further, or moves while paused, is someone moving YouTube's bar.
+  function detectUserSeek() {
+    if (!playerReady || !state || !state.current || loadedItemId !== state.current.id) return;
+    const now = Date.now();
+    const actual = readPlayerTime();
+    if (commandedTime != null) {
+      if (Math.abs(actual - commandedTime) <= DRIFT_TOLERANCE) {
+        commandedTime = null;
+        lastSample = { time: actual, at: now };
+        return;
+      }
+      const moved = lastSample && Math.abs(actual - lastSample.time) > SEEK_JUMP;
+      if (!moved && now < commandUntil) {
+        lastSample = { time: actual, at: now };
+        return;
+      }
+      commandedTime = null;
+    }
+    let jumped = false;
+    if (lastSample) {
+      const elapsed = (now - lastSample.at) / 1000;
+      const delta = actual - lastSample.time;
+      const expectedDelta = state.playing ? elapsed : 0;
+      if (delta > expectedDelta + SEEK_JUMP || delta < -SEEK_JUMP) jumped = true;
+    }
+    lastSample = { time: actual, at: now };
+    if (jumped) queueSeek(actual);
+  }
+
+  function transportAgrees(playerState, playing) {
+    if (playing) return playerState === 1 || playerState === 3;
+    return playerState === 2 || playerState === 5 || playerState === -1 || playerState === 0;
+  }
+
+  // Push the shared room onto this player. Used for someone else's action
+  // and for the echo of our own, never to override a click still in flight.
   function applyState() {
     if (!playerReady || !state) return;
     const { current, playing } = state;
@@ -207,12 +329,17 @@
     if (!current) {
       if (loadedItemId) player.stopVideo();
       loadedItemId = null;
+      lastSample = null;
       return;
     }
 
     const expected = expectedPosition();
     if (loadedItemId !== current.id) {
       loadedItemId = current.id;
+      lastSample = null;
+      sawPlaying = false;
+      commandedTime = expected;
+      commandUntil = Date.now() + 1500;
       loadGraceUntil = Date.now() + LOAD_GRACE_MS;
       const opts = { videoId: current.videoId, startSeconds: expected };
       if (playing) player.loadVideoById(opts);
@@ -220,17 +347,42 @@
       return;
     }
 
-    const playerState = player.getPlayerState();
-    if (Math.abs(player.getCurrentTime() - expected) > DRIFT_TOLERANCE) {
+    if (inGrace()) {
+      deferredRemote = true;
+      return;
+    }
+    deferredRemote = false;
+
+    const playerState = readPlayerState();
+    if (Math.abs(readPlayerTime() - expected) > DRIFT_TOLERANCE) {
+      commandedTime = expected;
+      commandUntil = Date.now() + 1200;
       player.seekTo(expected, true);
     }
     if (playing && playerState !== 1 && playerState !== 3) player.playVideo();
     if (!playing && (playerState === 1 || playerState === 3)) player.pauseVideo();
   }
 
+  // Only nudge the clock when both sides already agree on play or pause.
+  // A click changes the player first; forcing play or pause here undoes it
+  // before that click can be broadcast.
+  function correctDrift() {
+    if (!playerReady || !state || !state.current || loadedItemId !== state.current.id) return;
+    if (inGrace()) return;
+    const playerState = readPlayerState();
+    if (!transportAgrees(playerState, state.playing)) return;
+    const expected = expectedPosition();
+    if (Math.abs(readPlayerTime() - expected) <= DRIFT_TOLERANCE) return;
+    commandedTime = expected;
+    commandUntil = Date.now() + 1200;
+    player.seekTo(expected, true);
+  }
+
   function tick() {
     if (!state) return;
-    applyState();
+    detectUserSeek();
+    if (!inGrace() && deferredRemote) applyState();
+    else correctDrift();
     updateProgress();
 
     // Browsers may block autoplay (e.g. after a reload). If we should be
@@ -314,7 +466,12 @@
 
   function updateProgress() {
     const duration = playerReady && state && state.current ? player.getDuration() || 0 : 0;
-    const position = Math.min(expectedPosition(), duration || Infinity);
+    // While a native scrub is in flight, follow the player instead of the
+    // old room clock so the room's own bar doesn't leap backwards.
+    const live = !seeking && playerReady && state && state.current && (pendingSeekAt != null || Date.now() < userGraceUntil);
+    const position = live
+      ? readPlayerTime()
+      : Math.min(expectedPosition(), duration || Infinity);
     els.seek.max = Math.floor(duration);
     if (!seeking) els.seek.value = Math.floor(position);
     els.timeCur.textContent = formatTime(seeking ? Number(els.seek.value) : position);
@@ -398,14 +555,7 @@
       videoOn = !videoOn;
       localStorage.setItem('video', videoOn ? 'on' : 'off');
       applyVideoMode();
-      // Clicks count as a user gesture, which the floating window needs to resize.
-      if (pipWindow) {
-        try { pipWindow.resizeBy(0, videoOn ? PIP_VIDEO_EXTRA : -PIP_VIDEO_EXTRA); } catch { /* user can resize */ }
-      }
     });
-
-    els.popOut.addEventListener('click', togglePip);
-    els.pipReturn.addEventListener('click', () => pipWindow && pipWindow.close());
   }
 
   // ---------- Reactions ----------
@@ -446,7 +596,7 @@
     socket.emit('react', { emoji });
   }
 
-  // Float an emoji up from its button. Works in whichever document hosts the app.
+  // Float an emoji up from its button.
   function spawnReaction(emoji) {
     const doc = els.app.ownerDocument;
     // Animations don't run in hidden tabs, so floaters would just pile up.
@@ -712,72 +862,6 @@
     } else if (!shouldDuck && savedVolume !== null) {
       player.setVolume(savedVolume);
       savedVolume = null;
-    }
-  }
-
-  // ---------- Floating window (Document Picture-in-Picture) ----------
-  async function togglePip() {
-    if (pipWindow) {
-      pipWindow.close();
-      return;
-    }
-    let pip;
-    try {
-      pip = await window.documentPictureInPicture.requestWindow({
-        width: 360,
-        height: PIP_HEIGHT + (videoOn ? PIP_VIDEO_EXTRA : 0),
-      });
-    } catch (err) {
-      toast('Could not open floating window.');
-      return;
-    }
-    pipWindow = pip;
-    copyStyles(pip.document);
-    pip.document.title = 'Listen Together';
-    pip.document.body.classList.add('pip');
-
-    // Iframes reload when moved between documents, so rebuild the player there,
-    // inside a same-origin frame so YouTube gets a referrer (see player-frame.html).
-    destroyPlayer();
-    stopSpam();
-    els.reactionLayer.replaceChildren();
-    pip.document.body.append(els.app);
-    els.pipPlaceholder.hidden = false;
-    els.popOut.textContent = 'Dock';
-    const frame = pip.document.createElement('iframe');
-    frame.src = '/player-frame.html';
-    frame.allow = 'autoplay; encrypted-media';
-    frame.addEventListener('load', () => {
-      mountPlayer(frame.contentWindow, frame.contentDocument.body);
-    }, { once: true });
-    els.playerContainer.replaceChildren(frame);
-
-    pip.addEventListener('pagehide', () => {
-      stopSpam();
-      els.reactionLayer.replaceChildren();
-      destroyPlayer();
-      els.room.append(els.app);
-      els.pipPlaceholder.hidden = true;
-      els.popOut.textContent = 'Float';
-      pipWindow = null;
-      mountPlayer(window, els.playerContainer);
-    });
-  }
-
-  function copyStyles(targetDoc) {
-    for (const sheet of document.styleSheets) {
-      try {
-        const style = targetDoc.createElement('style');
-        style.textContent = [...sheet.cssRules].map((rule) => rule.cssText).join('\n');
-        targetDoc.head.appendChild(style);
-      } catch {
-        if (sheet.href) {
-          const link = targetDoc.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = sheet.href;
-          targetDoc.head.appendChild(link);
-        }
-      }
     }
   }
 

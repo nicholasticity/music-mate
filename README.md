@@ -1,6 +1,6 @@
 # Listen Together
 
-Shared YouTube listening rooms with a floating mini-player. The video shows by default;
+Shared YouTube listening rooms. The video shows by default;
 the 📺 button switches to audio-only, with the thumbnail as cover art.
 
 - Create a room, share the link, and everyone hears the same thing in sync.
@@ -9,7 +9,6 @@ the 📺 button switches to audio-only, with the thumbnail as cover art.
 - Send a short message that floats up once as a bubble with your name.
 - Hold 🎤 to record a voice message (up to 30 s). Others tap it to play it once; it
   is never stored, and the music dips while it plays.
-- **Float** opens an always-on-top mini-player (Document Picture-in-Picture, desktop Chrome/Edge).
 
 ## Run
 
@@ -20,8 +19,7 @@ npm start          # http://localhost:3000
 
 To let friends join from other devices, deploy it anywhere that runs Node and supports
 WebSockets (Render, Railway, Fly.io…) or expose it temporarily with a tunnel, e.g.
-`npx cloudflared tunnel --url http://localhost:3000`. The floating window needs HTTPS
-(localhost is exempt).
+`npx cloudflared tunnel --url http://localhost:3000`.
 
 ## Deploy to Render
 
@@ -40,13 +38,11 @@ then takes a while to wake it), and any open rooms are lost when it sleeps or re
 - In audio-only mode the YouTube player is rendered at 200×200 with `opacity: 0` rather
   than `display: none`, since browsers may not load or play media in hidden frames.
   YouTube's API terms expect the player to be visible, so the video is on by default.
-- `public/player-frame.html` — hosts the player inside the floating window, which is an
-  `about:blank` document; YouTube refuses embeds without a referrer (error 153).
 
 ## Platform notes
 
-| Platform | Floating window | Background play |
-| --- | --- | --- |
-| Desktop Chrome / Edge | Yes (Float button) | Yes |
-| Desktop Firefox / Safari | No | Yes (background tab) |
-| Android / iOS | No | Unreliable — YouTube embeds usually pause when the screen locks |
+| Platform | Background play |
+| --- | --- |
+| Desktop Chrome / Edge | Yes |
+| Desktop Firefox / Safari | Yes (background tab) |
+| Android / iOS | Unreliable — YouTube embeds usually pause when the screen locks |

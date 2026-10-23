@@ -57,6 +57,10 @@ function currentPosition(room) {
   return room.position + (Date.now() - room.updatedAt) / 1000;
 }
 
+function asObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
 function setPlayback(room, { playing = room.playing, position = currentPosition(room) }) {
   room.playing = playing;
   room.position = Math.max(0, position);
@@ -167,9 +171,12 @@ io.on('connection', (socket) => {
   socket.join(room.id);
   broadcast(room);
 
-  socket.on('add', async ({ url }, ack) => {
-    if (!room) return;
-    const videoId = parseVideoId(url);
+  socket.on('add', async (body, ack) => {
+    if (!room || !asObject(body) || typeof body.url !== 'string') {
+      if (typeof ack === 'function') ack({ error: 'That does not look like a YouTube link.' });
+      return;
+    }
+    const videoId = parseVideoId(body.url);
     if (!videoId) {
       if (typeof ack === 'function') ack({ error: 'That does not look like a YouTube link.' });
       return;
@@ -209,9 +216,9 @@ io.on('connection', (socket) => {
     broadcast(room);
   });
 
-  socket.on('seek', ({ position }) => {
-    if (!room?.current || !Number.isFinite(position)) return;
-    setPlayback(room, { position });
+  socket.on('seek', (body) => {
+    if (!room?.current || !asObject(body) || !Number.isFinite(body.position)) return;
+    setPlayback(room, { position: body.position });
     broadcast(room);
   });
 
@@ -222,16 +229,16 @@ io.on('connection', (socket) => {
   });
 
   // Every client reports "ended"; only the first report for the current item advances.
-  socket.on('ended', ({ itemId }) => {
-    if (!room?.current || room.current.id !== itemId) return;
+  socket.on('ended', (body) => {
+    if (!room?.current || !asObject(body) || body.itemId !== room.current.id) return;
     playNext(room);
     broadcast(room);
   });
 
   // A player error may be local (network, browser quirk), so only skip once
   // every listener's player has failed on this item.
-  socket.on('videoError', ({ itemId }) => {
-    if (!room?.current || room.current.id !== itemId) return;
+  socket.on('videoError', (body) => {
+    if (!room?.current || !asObject(body) || body.itemId !== room.current.id) return;
     room.errorReports.add(socket.id);
     if (room.errorReports.size >= room.members.size) {
       playNext(room);
@@ -239,34 +246,34 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('playNow', ({ itemId }) => {
-    if (!room) return;
-    const index = room.queue.findIndex((item) => item.id === itemId);
+  socket.on('playNow', (body) => {
+    if (!room || !asObject(body) || typeof body.itemId !== 'string') return;
+    const index = room.queue.findIndex((item) => item.id === body.itemId);
     if (index === -1) return;
     const [item] = room.queue.splice(index, 1);
     setCurrent(room, item);
     broadcast(room);
   });
 
-  socket.on('remove', ({ itemId }) => {
-    if (!room) return;
-    room.queue = room.queue.filter((item) => item.id !== itemId);
+  socket.on('remove', (body) => {
+    if (!room || !asObject(body) || typeof body.itemId !== 'string') return;
+    room.queue = room.queue.filter((item) => item.id !== body.itemId);
     broadcast(room);
   });
 
   // Reactions are fire-and-forget: relayed to everyone else, never stored.
   // The sender already shows its own reaction locally.
-  socket.on('react', ({ emoji } = {}) => {
-    if (!room || !REACTIONS.includes(emoji) || !allowReaction()) return;
-    socket.to(room.id).emit('react', { emoji });
+  socket.on('react', (body) => {
+    if (!room || !asObject(body) || !REACTIONS.includes(body.emoji) || !allowReaction()) return;
+    socket.to(room.id).emit('react', { emoji: body.emoji });
   });
 
   // Messages float up once on everyone's screen; like reactions, never stored.
   // The sender shows its own copy after the ack, using the cleaned text.
-  socket.on('message', ({ text } = {}, ack) => {
+  socket.on('message', (body, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
-    if (!room) return;
-    const clean = cleanMessage(text);
+    if (!room || !asObject(body)) return reply({ error: 'Type something first.' });
+    const clean = cleanMessage(body.text);
     if (!clean) return reply({ error: 'Type something first.' });
     if (!allowMessage()) return reply({ error: 'Slow down a little 💕' });
     socket.to(room.id).emit('message', { text: clean, from: room.members.get(socket.id) || 'Guest' });
@@ -274,9 +281,10 @@ io.on('connection', (socket) => {
   });
 
   // One-time voice messages: relayed to everyone else, never stored.
-  socket.on('voice', ({ audio, mimeType, duration } = {}, ack) => {
+  socket.on('voice', (body, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
-    if (!room) return;
+    if (!room || !asObject(body)) return reply({ error: 'That voice message is too big.' });
+    const { audio, mimeType, duration } = body;
     if (!Buffer.isBuffer(audio) || audio.length === 0 || audio.length > VOICE_MAX_BYTES) {
       return reply({ error: 'That voice message is too big.' });
     }
