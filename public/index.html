@@ -37,74 +37,83 @@
     </div>
 
     <div id="app">
-      <header class="row header">
-        <div class="room-title">
-          <span class="muted small">Room</span>
-          <strong id="room-id"></strong>
-        </div>
-        <div class="row gap-s">
-          <button id="video-toggle" title="Show or hide the video" aria-label="Video" aria-pressed="true">📺</button>
-          <button id="copy-link" title="Copy invite link">Invite</button>
-          <button id="pop-out" title="Open a floating always-on-top player">Float</button>
-        </div>
-      </header>
+      <!-- stage groups the picture with the controls that sit on or under it.
+           room-more is the queue, which stays in normal flow below the picture. -->
+      <div class="stage">
+        <header class="row header">
+          <div class="room-title">
+            <span class="muted small">Room</span>
+            <strong id="room-id"></strong>
+          </div>
+          <div class="row gap-s">
+            <button id="video-toggle" title="Show or hide the video" aria-label="Video" aria-pressed="true">📺</button>
+            <button id="copy-link" title="Copy invite link">Invite</button>
+            <button id="pop-out" title="Open a floating always-on-top player">Float</button>
+          </div>
+        </header>
 
-      <!-- The YouTube player. With video on it shows above the title; with it
-           off it stays rendered but invisible (browsers may stop loading media
-           in display:none or tiny frames) and the cover art shows instead. -->
-      <div id="player-host" class="player-host"><div id="player"></div></div>
+        <!-- The YouTube player. With video on it fills the top of the room; with it
+             off it stays rendered but invisible (browsers may stop loading media
+             in display:none or tiny frames) and the cover art shows instead. -->
+        <div id="player-host" class="player-host"><div id="player"></div></div>
 
-      <div class="now-card">
-        <div id="art-box" class="art">
-          <img id="art" alt="" hidden>
-          <div id="art-empty" class="art-empty">♪</div>
-          <button id="sync-btn" class="art-overlay" hidden>Tap to start audio</button>
-        </div>
-        <div class="now">
-          <div id="now-title" class="now-title">Nothing playing</div>
-          <div id="now-meta" class="muted small">Paste a YouTube link below to start</div>
+        <div class="room-panel">
+          <div class="now-card">
+            <div id="art-box" class="art">
+              <img id="art" alt="" hidden>
+              <div id="art-empty" class="art-empty">♪</div>
+              <button id="sync-btn" class="art-overlay" hidden>Tap to start audio</button>
+            </div>
+            <div class="now">
+              <div id="now-title" class="now-title">Nothing playing</div>
+              <div id="now-meta" class="muted small">Paste a YouTube link below to start</div>
+            </div>
+          </div>
+
+          <div class="row controls">
+            <button id="toggle" class="primary round" title="Play / pause">▶</button>
+            <button id="skip" class="round" title="Skip">⏭</button>
+            <span id="time-cur" class="muted small mono">0:00</span>
+            <input id="seek" type="range" min="0" max="0" step="1" value="0">
+            <span id="time-dur" class="muted small mono">0:00</span>
+          </div>
+
+          <!-- Tap to react, hold to spam. Keep in sync with REACTIONS in server.js. -->
+          <div id="reactions" class="reactions">
+            <button type="button" data-emoji="🥰" aria-label="Adore">🥰</button>
+            <button type="button" data-emoji="😍" aria-label="Heart eyes">😍</button>
+            <button type="button" data-emoji="😘" aria-label="Blow a kiss">😘</button>
+            <button type="button" data-emoji="💕" aria-label="Two hearts">💕</button>
+            <button type="button" data-emoji="💖" aria-label="Sparkling heart">💖</button>
+          </div>
+          <!-- Incoming voice messages wait here until tapped; each plays once. -->
+          <div id="voice-tray" class="voice-tray" aria-live="polite"></div>
+
+          <form id="message-form" class="row message-form">
+            <input id="message-input" placeholder="Send a sweet message…" maxlength="80" autocomplete="off" enterkeyhint="send">
+            <span id="recording-status" class="recording-status" hidden></span>
+            <button type="button" id="voice-btn" class="voice-btn" aria-label="Hold to record a voice message">🎤</button>
+            <button type="submit" aria-label="Send message">💌</button>
+          </form>
         </div>
       </div>
 
-      <div class="row controls">
-        <button id="toggle" class="primary round" title="Play / pause">▶</button>
-        <button id="skip" class="round" title="Skip">⏭</button>
-        <span id="time-cur" class="muted small mono">0:00</span>
-        <input id="seek" type="range" min="0" max="0" step="1" value="0">
-        <span id="time-dur" class="muted small mono">0:00</span>
-      </div>
-
-      <!-- Tap to react, hold to spam. Keep in sync with REACTIONS in server.js. -->
-      <div id="reactions" class="reactions">
-        <button type="button" data-emoji="🥰" aria-label="Adore">🥰</button>
-        <button type="button" data-emoji="😍" aria-label="Heart eyes">😍</button>
-        <button type="button" data-emoji="😘" aria-label="Blow a kiss">😘</button>
-        <button type="button" data-emoji="💕" aria-label="Two hearts">💕</button>
-        <button type="button" data-emoji="💖" aria-label="Sparkling heart">💖</button>
-      </div>
-      <!-- Incoming voice messages wait here until tapped; each plays once. -->
-      <div id="voice-tray" class="voice-tray" aria-live="polite"></div>
-
-      <form id="message-form" class="row message-form">
-        <input id="message-input" placeholder="Send a sweet message…" maxlength="80" autocomplete="off" enterkeyhint="send">
-        <span id="recording-status" class="recording-status" hidden></span>
-        <button type="button" id="voice-btn" class="voice-btn" aria-label="Hold to record a voice message">🎤</button>
-        <button type="submit" aria-label="Send message">💌</button>
-      </form>
       <div id="reaction-layer" class="reaction-layer" aria-hidden="true"></div>
 
-      <form id="add-form" class="row">
-        <input id="add-url" placeholder="Paste a YouTube link…" autocomplete="off">
-        <button type="submit" class="primary">Add</button>
-      </form>
-      <div id="add-error" class="error small" hidden></div>
+      <div class="room-more">
+        <form id="add-form" class="row">
+          <input id="add-url" placeholder="Paste a YouTube link…" autocomplete="off">
+          <button type="submit" class="primary">Add</button>
+        </form>
+        <div id="add-error" class="error small" hidden></div>
 
-      <h2 class="section">Up next</h2>
-      <ol id="queue" class="queue"></ol>
-      <p id="queue-empty" class="muted small">Queue is empty.</p>
+        <h2 class="section">Up next</h2>
+        <ol id="queue" class="queue"></ol>
+        <p id="queue-empty" class="muted small">Queue is empty.</p>
 
-      <h2 class="section hide-in-pip">Listening</h2>
-      <div id="members" class="members hide-in-pip"></div>
+        <h2 class="section hide-in-pip">Listening</h2>
+        <div id="members" class="members hide-in-pip"></div>
+      </div>
 
       <!-- Inside #app so it moves into the floating window too. -->
       <div id="toast" class="toast" hidden></div>

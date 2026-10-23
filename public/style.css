@@ -338,3 +338,125 @@ body.pip .message-floater { font-size: 13px; }
 body.pip .message-floater.emoji-message { font-size: 30px; }
 body.pip h2.section { margin: 12px 0 6px; }
 body.pip .hide-in-pip { display: none; }
+
+/* Full-bleed video. The picture touches the top, left, and right of the
+   viewport. Wide windows fill the screen and float the listening controls
+   over the bottom edge; the queue stays just below. Narrow windows keep a
+   16:9 picture and stack those controls underneath. Audio-only (no .video-on)
+   and the floating window (body.pip) are unchanged: the player there is still
+   the small invisible frame, or the compact 16:9 card. */
+body:not(.pip) #room:has(#app.video-on.has-song) {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body:not(.pip) #app.video-on.has-song .stage {
+  position: relative;
+  background: #000;
+}
+
+body:not(.pip) #app.video-on.has-song .header {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding:
+    max(8px, env(safe-area-inset-top))
+    max(12px, env(safe-area-inset-right))
+    10px
+    max(12px, env(safe-area-inset-left));
+  /* Opaque bar so the room controls stay readable over YouTube's own title. */
+  background: #12121a;
+  box-shadow: 0 10px 16px rgba(0, 0, 0, .35);
+}
+body:not(.pip) #app.video-on.has-song .header .room-title {
+  min-width: 0;
+  flex: 1;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .6);
+}
+body:not(.pip) #app.video-on.has-song .header .room-title strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not(.pip) #app.video-on.has-song .player-host {
+  position: relative;
+  left: auto;
+  bottom: auto;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  margin: 0;
+  border-radius: 0;
+  opacity: 1;
+  z-index: 1;
+  overflow: hidden;
+  background: #000;
+}
+
+body:not(.pip) #app.video-on.has-song .room-panel {
+  padding: 10px 12px 0;
+}
+body:not(.pip) #app.video-on.has-song .now-card {
+  background: transparent;
+  border-radius: 0;
+  padding: 2px 0 0;
+  margin-bottom: 8px;
+}
+body:not(.pip) #app.video-on.has-song .room-more {
+  padding: 0 12px 32px;
+}
+
+/* Landscape and desktop: the 16:9 frame would already eat the viewport,
+   so let the picture fill it and keep playback, reactions, and messages
+   on top of the lower edge. */
+@media (min-aspect-ratio: 4/3) and (min-height: 700px) {
+  body:not(.pip) #app.video-on.has-song .stage {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  body:not(.pip) #app.video-on.has-song .player-host {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+  }
+
+  body:not(.pip) #app.video-on.has-song .room-panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    padding:
+      72px
+      max(24px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom))
+      max(24px, env(safe-area-inset-left));
+    background: linear-gradient(to top, rgba(8, 8, 14, .97) 0%, rgba(8, 8, 14, .94) 58%, rgba(8, 8, 14, 0) 100%);
+  }
+
+  body:not(.pip) #app.video-on.has-song .now-card { margin-bottom: 6px; }
+  body:not(.pip) #app.video-on.has-song .now-title {
+    font-size: 20px;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, .65);
+  }
+  body:not(.pip) #app.video-on.has-song .controls { margin-bottom: 8px; }
+  body:not(.pip) #app.video-on.has-song .reactions { margin-bottom: 8px; }
+  body:not(.pip) #app.video-on.has-song .message-form { margin-bottom: 0; }
+
+  body:not(.pip) #app.video-on.has-song .room-more {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 18px 20px 40px;
+  }
+}
