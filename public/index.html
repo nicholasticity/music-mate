@@ -31,11 +31,6 @@
 
   <!-- Room view -->
   <main id="room" hidden>
-    <div id="pip-placeholder" class="card center" hidden>
-      <p>Playing in the floating window.</p>
-      <button id="pip-return">Bring it back</button>
-    </div>
-
     <div id="app">
       <!-- stage groups the picture with the controls that sit on or under it.
            room-more is the queue, which stays in normal flow below the picture. -->
@@ -48,16 +43,15 @@
           <div class="row gap-s">
             <button id="video-toggle" title="Show or hide the video" aria-label="Video" aria-pressed="true">📺</button>
             <button id="copy-link" title="Copy invite link">Invite</button>
-            <button id="pop-out" title="Open a floating always-on-top player">Float</button>
           </div>
         </header>
 
         <!-- The YouTube player. With video on it fills the room under the top bar;
              with it off it stays rendered but invisible (browsers may stop loading
              media in display:none or tiny frames) and the cover art shows instead.
-             player-frame is display:contents unless the wide layout needs a box
-             to anchor the floating controls above YouTube's own bar. -->
-        <div class="player-frame">
+             This wrapper is display:contents unless the wide layout needs a box
+             to anchor the room controls above YouTube's own bar. -->
+        <div class="player-slot">
         <div id="player-host" class="player-host"><div id="player"></div></div>
 
         <div class="room-panel">
@@ -115,11 +109,10 @@
         <ol id="queue" class="queue"></ol>
         <p id="queue-empty" class="muted small">Queue is empty.</p>
 
-        <h2 class="section hide-in-pip">Listening</h2>
-        <div id="members" class="members hide-in-pip"></div>
+        <h2 class="section">Listening</h2>
+        <div id="members" class="members"></div>
       </div>
 
-      <!-- Inside #app so it moves into the floating window too. -->
       <div id="toast" class="toast" hidden></div>
     </div>
   </main>

@@ -12,8 +12,6 @@
   const VOICE_MIN_MS = 500;     // shorter presses are treated as accidental
   const VOICE_EXPIRE_MS = 60000; // untapped voice messages disappear after this
   const VOICE_TRAY_MAX = 5;
-  const PIP_HEIGHT = 440;       // floating window height with video off...
-  const PIP_VIDEO_EXTRA = 140;  // ...and how much taller it gets with video on
   const DUCK_LEVEL = 0.2;       // music volume while recording / playing a voice message
   // Prefer MP4/AAC: it plays everywhere, including iPhones.
   const VOICE_TYPES = ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
@@ -23,8 +21,7 @@
     landing: $('landing'), join: $('join'), room: $('room'), app: $('app'),
     createRoom: $('create-room'), joinCodeForm: $('join-code-form'), joinCode: $('join-code'),
     joinForm: $('join-form'), joinName: $('join-name'), joinRoomId: $('join-room-id'),
-    roomId: $('room-id'), copyLink: $('copy-link'), popOut: $('pop-out'),
-    pipPlaceholder: $('pip-placeholder'), pipReturn: $('pip-return'),
+    roomId: $('room-id'), copyLink: $('copy-link'),
     playerContainer: $('player'), art: $('art'), artEmpty: $('art-empty'), syncBtn: $('sync-btn'),
     nowTitle: $('now-title'), nowMeta: $('now-meta'),
     toggle: $('toggle'), skip: $('skip'), seek: $('seek'), timeCur: $('time-cur'), timeDur: $('time-dur'),
@@ -89,7 +86,6 @@
   let sawPlaying = false;         // ignore the pause YouTube fires before playback has started
   let commandedTime = null;       // where our own seekTo told the player to go
   let commandUntil = 0;
-  let pipWindow = null;
   let mountGeneration = 0;
   let spamTimer = null;
   let spamButton = null;
@@ -103,9 +99,6 @@
 
   function enterRoom(name) {
     els.roomId.textContent = roomId;
-    // The floating window only exists on desktop Chrome/Edge; hide it elsewhere
-    // (a disabled button's tooltip never shows on touch screens).
-    els.popOut.hidden = !('documentPictureInPicture' in window);
     applyVideoMode();
 
     // Room and name travel with the connection, so the server has us in the
@@ -152,8 +145,6 @@
   }
 
   // ---------- YouTube player ----------
-  // The IFrame API is loaded into whichever window hosts the player, so the
-  // same code works for the main page and the Picture-in-Picture window.
   function loadYouTubeApi(win) {
     return new Promise((resolve) => {
       if (win.YT && win.YT.Player) return resolve(win.YT);
@@ -564,14 +555,7 @@
       videoOn = !videoOn;
       localStorage.setItem('video', videoOn ? 'on' : 'off');
       applyVideoMode();
-      // Clicks count as a user gesture, which the floating window needs to resize.
-      if (pipWindow) {
-        try { pipWindow.resizeBy(0, videoOn ? PIP_VIDEO_EXTRA : -PIP_VIDEO_EXTRA); } catch { /* user can resize */ }
-      }
     });
-
-    els.popOut.addEventListener('click', togglePip);
-    els.pipReturn.addEventListener('click', () => pipWindow && pipWindow.close());
   }
 
   // ---------- Reactions ----------
@@ -612,7 +596,7 @@
     socket.emit('react', { emoji });
   }
 
-  // Float an emoji up from its button. Works in whichever document hosts the app.
+  // Float an emoji up from its button.
   function spawnReaction(emoji) {
     const doc = els.app.ownerDocument;
     // Animations don't run in hidden tabs, so floaters would just pile up.
@@ -878,72 +862,6 @@
     } else if (!shouldDuck && savedVolume !== null) {
       player.setVolume(savedVolume);
       savedVolume = null;
-    }
-  }
-
-  // ---------- Floating window (Document Picture-in-Picture) ----------
-  async function togglePip() {
-    if (pipWindow) {
-      pipWindow.close();
-      return;
-    }
-    let pip;
-    try {
-      pip = await window.documentPictureInPicture.requestWindow({
-        width: 360,
-        height: PIP_HEIGHT + (videoOn ? PIP_VIDEO_EXTRA : 0),
-      });
-    } catch (err) {
-      toast('Could not open floating window.');
-      return;
-    }
-    pipWindow = pip;
-    copyStyles(pip.document);
-    pip.document.title = 'Listen Together';
-    pip.document.body.classList.add('pip');
-
-    // Iframes reload when moved between documents, so rebuild the player there,
-    // inside a same-origin frame so YouTube gets a referrer (see player-frame.html).
-    destroyPlayer();
-    stopSpam();
-    els.reactionLayer.replaceChildren();
-    pip.document.body.append(els.app);
-    els.pipPlaceholder.hidden = false;
-    els.popOut.textContent = 'Dock';
-    const frame = pip.document.createElement('iframe');
-    frame.src = '/player-frame.html';
-    frame.allow = 'autoplay; encrypted-media';
-    frame.addEventListener('load', () => {
-      mountPlayer(frame.contentWindow, frame.contentDocument.body);
-    }, { once: true });
-    els.playerContainer.replaceChildren(frame);
-
-    pip.addEventListener('pagehide', () => {
-      stopSpam();
-      els.reactionLayer.replaceChildren();
-      destroyPlayer();
-      els.room.append(els.app);
-      els.pipPlaceholder.hidden = true;
-      els.popOut.textContent = 'Float';
-      pipWindow = null;
-      mountPlayer(window, els.playerContainer);
-    });
-  }
-
-  function copyStyles(targetDoc) {
-    for (const sheet of document.styleSheets) {
-      try {
-        const style = targetDoc.createElement('style');
-        style.textContent = [...sheet.cssRules].map((rule) => rule.cssText).join('\n');
-        targetDoc.head.appendChild(style);
-      } catch {
-        if (sheet.href) {
-          const link = targetDoc.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = sheet.href;
-          targetDoc.head.appendChild(link);
-        }
-      }
     }
   }
 

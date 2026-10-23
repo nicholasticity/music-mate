@@ -169,7 +169,7 @@ input[type="range"] {
 #app.video-on.has-song .player-host #player,
 #app.video-on.has-song .player-host iframe { pointer-events: auto; }
 .player-host .art-overlay { pointer-events: auto; font-size: 16px; }
-.player-frame { display: contents; }
+.player-slot { display: contents; }
 #video-toggle.active { background: var(--accent); }
 
 .controls { margin-bottom: 14px; }
@@ -324,41 +324,21 @@ input[type="range"] {
   box-shadow: 0 6px 24px rgba(0, 0, 0, .4);
 }
 
-/* Compact layout inside the floating Picture-in-Picture window */
-body.pip { overflow-y: auto; }
-body.pip #app { padding: 10px; }
-body.pip .header { margin-bottom: 8px; }
-body.pip .now-card { padding: 10px; gap: 12px; margin-bottom: 8px; }
-body.pip .art { width: 64px; height: 64px; border-radius: 8px; }
-body.pip .art-empty { font-size: 26px; }
-body.pip .art-overlay { font-size: 11px; padding: 4px; }
-body.pip .now-title { font-size: 14px; }
-body.pip .controls { margin-bottom: 10px; }
-body.pip .reactions { gap: 4px; margin-bottom: 10px; }
-body.pip .reactions button { font-size: 20px; padding: 4px 0; }
-body.pip .floater { font-size: 22px; }
-body.pip .message-form { margin-bottom: 10px; }
-body.pip .message-floater { font-size: 13px; }
-body.pip .message-floater.emoji-message { font-size: 30px; }
-body.pip h2.section { margin: 12px 0 6px; }
-body.pip .hide-in-pip { display: none; }
-
 /* Full-bleed video. The top bar stays in normal flow and the player box
    fills everything under it, edge to edge, down to the bottom of the
    viewport. The embed itself is pinned to the top of that box and kept at
    16:9 (or the box, when the box is shorter) so YouTube's letterbox sits
    below the picture instead of between the bar and the video. Nothing is
-   scaled or cropped. Playback controls float over the lower edge; the queue
-   sits just below. Audio-only (no .video-on) and the floating window
-   (body.pip) are unchanged. */
-body:not(.pip) #room:has(#app.video-on.has-song) {
+   scaled or cropped. Playback controls sit over the lower edge; the queue
+   sits just below. Audio-only (no .video-on) is unchanged. */
+#room:has(#app.video-on.has-song) {
   max-width: none;
   width: 100%;
   margin: 0;
   padding: 0;
 }
 
-body:not(.pip) #app.video-on.has-song .stage {
+#app.video-on.has-song .stage {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -368,7 +348,7 @@ body:not(.pip) #app.video-on.has-song .stage {
   overflow: hidden;
 }
 
-body:not(.pip) #app.video-on.has-song .header {
+#app.video-on.has-song .header {
   position: relative;
   z-index: 5;
   flex: none;
@@ -380,26 +360,26 @@ body:not(.pip) #app.video-on.has-song .header {
     max(12px, env(safe-area-inset-left));
   background: #12121a;
 }
-body:not(.pip) #app.video-on.has-song .header .room-title {
+#app.video-on.has-song .header .room-title {
   min-width: 0;
   flex: 1;
   text-shadow: 0 1px 4px rgba(0, 0, 0, .6);
 }
-body:not(.pip) #app.video-on.has-song .header .room-title strong {
+#app.video-on.has-song .header .room-title strong {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-body:not(.pip) #app.video-on.has-song .player-frame {
+#app.video-on.has-song .player-slot {
   position: relative;
   display: block;
   flex: 1 1 auto;
   min-height: 0;
   container-type: size;
 }
-body:not(.pip) #app.video-on.has-song .player-host {
+#app.video-on.has-song .player-host {
   position: absolute;
   inset: 0;
   left: 0;
@@ -420,8 +400,8 @@ body:not(.pip) #app.video-on.has-song .player-host {
 /* Top-align a 16:9 embed. A taller box would make YouTube center the video
    and leave a black band under the room bar; capping the embed and pinning
    it to the top moves that band below the picture. */
-body:not(.pip) #app.video-on.has-song .player-host #player,
-body:not(.pip) #app.video-on.has-song .player-host iframe {
+#app.video-on.has-song .player-host #player,
+#app.video-on.has-song .player-host iframe {
   top: 0 !important;
   left: 0 !important;
   right: auto !important;
@@ -432,7 +412,7 @@ body:not(.pip) #app.video-on.has-song .player-host iframe {
   transform: none !important;
 }
 
-body:not(.pip) #app.video-on.has-song .room-panel {
+#app.video-on.has-song .room-panel {
   position: absolute;
   left: 0;
   right: 0;
@@ -450,27 +430,26 @@ body:not(.pip) #app.video-on.has-song .room-panel {
     max(16px, env(safe-area-inset-left));
   background: linear-gradient(to top, rgba(8, 8, 14, .97) 0%, rgba(8, 8, 14, .94) 58%, rgba(8, 8, 14, 0) 100%);
 }
-body:not(.pip) #app.video-on.has-song .now-card {
+#app.video-on.has-song .now-card {
   background: transparent;
   border-radius: 0;
   padding: 2px 0 0;
   margin-bottom: 6px;
 }
-body:not(.pip) #app.video-on.has-song .now-title {
+#app.video-on.has-song .now-title {
   text-shadow: 0 1px 10px rgba(0, 0, 0, .65);
 }
 /* YouTube's own buttons are the play, pause, and seek controls while the
    video is showing. Skip stays. Audio-only (no .video-on) keeps a play
-   button and seek bar, and so does the floating window, where the picture
-   is small. */
-body:not(.pip) #app.video-on.has-song #toggle,
-body:not(.pip) #app.video-on.has-song #seek,
-body:not(.pip) #app.video-on.has-song #time-cur,
-body:not(.pip) #app.video-on.has-song #time-dur { display: none; }
-body:not(.pip) #app.video-on.has-song .controls { margin-bottom: 8px; }
-body:not(.pip) #app.video-on.has-song .reactions { margin-bottom: 8px; }
-body:not(.pip) #app.video-on.has-song .message-form { margin-bottom: 0; }
-body:not(.pip) #app.video-on.has-song .room-more {
+   button and seek bar. */
+#app.video-on.has-song #toggle,
+#app.video-on.has-song #seek,
+#app.video-on.has-song #time-cur,
+#app.video-on.has-song #time-dur { display: none; }
+#app.video-on.has-song .controls { margin-bottom: 8px; }
+#app.video-on.has-song .reactions { margin-bottom: 8px; }
+#app.video-on.has-song .message-form { margin-bottom: 0; }
+#app.video-on.has-song .room-more {
   max-width: 880px;
   margin: 0 auto;
   padding: 16px 12px 36px;
@@ -479,16 +458,16 @@ body:not(.pip) #app.video-on.has-song .room-more {
 /* Phones: the player is only as tall as the 16:9 picture, and the title
    sits just under it. Wider windows keep the viewport-filling player. */
 @media (max-width: 720px) {
-  body:not(.pip) #app.video-on.has-song .stage {
+  #app.video-on.has-song .stage {
     display: block;
     height: auto;
     overflow: visible;
     background: transparent;
   }
-  body:not(.pip) #app.video-on.has-song .player-frame {
+  #app.video-on.has-song .player-slot {
     display: contents;
   }
-  body:not(.pip) #app.video-on.has-song .player-host {
+  #app.video-on.has-song .player-host {
     position: relative;
     inset: auto;
     flex: none;
@@ -496,7 +475,7 @@ body:not(.pip) #app.video-on.has-song .room-more {
     height: auto;
     aspect-ratio: 16 / 9;
   }
-  body:not(.pip) #app.video-on.has-song .room-panel {
+  #app.video-on.has-song .room-panel {
     position: static;
     left: auto;
     right: auto;
