@@ -175,7 +175,7 @@ input[type="range"] {
 .controls { margin-bottom: 14px; }
 
 /* Reactions: tap to send, hold to spam */
-.reactions { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 14px; }
+.reactions { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 14px; }
 .reactions button {
   min-width: 0;
   padding: 6px 0;
