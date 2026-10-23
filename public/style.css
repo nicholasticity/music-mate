@@ -27,7 +27,6 @@ h2.section { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; 
 
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
-.mono { font-variant-numeric: tabular-nums; }
 .error { color: var(--error); margin-top: 6px; }
 
 .row { display: flex; align-items: center; gap: 8px; }
@@ -75,13 +74,6 @@ button.primary { background: var(--accent); color: #fff; }
 button.big { padding: 12px 18px; font-size: 16px; }
 button.round { width: 40px; height: 40px; padding: 0; border-radius: 50%; flex: none; }
 
-input[type="range"] {
-  flex: 1;
-  padding: 0;
-  background: none;
-  accent-color: var(--accent);
-}
-
 /* Room layout */
 #room { max-width: 640px; margin: 0 auto; padding: 16px; }
 .header { justify-content: space-between; margin-bottom: 12px; }
@@ -105,7 +97,6 @@ input[type="range"] {
   overflow: hidden;
   background: var(--panel-2);
 }
-.art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .art-empty {
   position: absolute;
   inset: 0;
@@ -136,7 +127,9 @@ input[type="range"] {
   margin-bottom: 4px;
 }
 
-/* Invisible but fully rendered, so the browser keeps playing it. */
+/* Nothing playing: keep the player mounted but invisible. display:none can
+   stop the browser loading the next song. While a song plays, the rules
+   below show the video. */
 .player-host {
   position: fixed;
   left: 0;
@@ -148,29 +141,13 @@ input[type="range"] {
   z-index: -1;
 }
 .player-host #player, .player-host iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-/* Video on: show the player above the title. Pointer events are enabled
-   below so YouTube's own controls work alongside the room controls. */
-#app.video-on.has-song .player-host {
-  position: relative;
-  left: auto;
-  bottom: auto;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 9;
-  opacity: 1;
-  z-index: auto;
-  margin-bottom: 12px;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: #000;
-}
-#app.video-on.has-song .art { display: none; }
-#app.video-on.has-song .player-host,
-#app.video-on.has-song .player-host #player,
-#app.video-on.has-song .player-host iframe { pointer-events: auto; }
+/* A playing song always shows the video, so YouTube's controls receive clicks. */
+#app.has-song .art { display: none; }
+#app.has-song .player-host,
+#app.has-song .player-host #player,
+#app.has-song .player-host iframe { pointer-events: auto; }
 .player-host .art-overlay { pointer-events: auto; font-size: 16px; }
 .player-slot { display: contents; }
-#video-toggle.active { background: var(--accent); }
 
 .controls { margin-bottom: 14px; }
 
@@ -330,15 +307,15 @@ input[type="range"] {
    16:9 (or the box, when the box is shorter) so YouTube's letterbox sits
    below the picture instead of between the bar and the video. Nothing is
    scaled or cropped. Playback controls sit over the lower edge; the queue
-   sits just below. Audio-only (no .video-on) is unchanged. */
-#room:has(#app.video-on.has-song) {
+   sits just below. An empty room keeps the column layout. */
+#room:has(#app.has-song) {
   max-width: none;
   width: 100%;
   margin: 0;
   padding: 0;
 }
 
-#app.video-on.has-song .stage {
+#app.has-song .stage {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -348,7 +325,7 @@ input[type="range"] {
   overflow: hidden;
 }
 
-#app.video-on.has-song .header {
+#app.has-song .header {
   position: relative;
   z-index: 5;
   flex: none;
@@ -360,26 +337,26 @@ input[type="range"] {
     max(12px, env(safe-area-inset-left));
   background: #12121a;
 }
-#app.video-on.has-song .header .room-title {
+#app.has-song .header .room-title {
   min-width: 0;
   flex: 1;
   text-shadow: 0 1px 4px rgba(0, 0, 0, .6);
 }
-#app.video-on.has-song .header .room-title strong {
+#app.has-song .header .room-title strong {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-#app.video-on.has-song .player-slot {
+#app.has-song .player-slot {
   position: relative;
   display: block;
   flex: 1 1 auto;
   min-height: 0;
   container-type: size;
 }
-#app.video-on.has-song .player-host {
+#app.has-song .player-host {
   position: absolute;
   inset: 0;
   left: 0;
@@ -400,8 +377,8 @@ input[type="range"] {
 /* Top-align a 16:9 embed. A taller box would make YouTube center the video
    and leave a black band under the room bar; capping the embed and pinning
    it to the top moves that band below the picture. */
-#app.video-on.has-song .player-host #player,
-#app.video-on.has-song .player-host iframe {
+#app.has-song .player-host #player,
+#app.has-song .player-host iframe {
   top: 0 !important;
   left: 0 !important;
   right: auto !important;
@@ -412,7 +389,7 @@ input[type="range"] {
   transform: none !important;
 }
 
-#app.video-on.has-song .room-panel {
+#app.has-song .room-panel {
   position: absolute;
   left: 0;
   right: 0;
@@ -430,31 +407,19 @@ input[type="range"] {
     max(16px, env(safe-area-inset-left));
   background: linear-gradient(to top, rgba(8, 8, 14, .97) 0%, rgba(8, 8, 14, .94) 58%, rgba(8, 8, 14, 0) 100%);
 }
-#app.video-on.has-song .now-card {
+#app.has-song .now-card {
   background: transparent;
   border-radius: 0;
   padding: 2px 0 0;
   margin-bottom: 6px;
 }
-#app.video-on.has-song .now-title {
+#app.has-song .now-title {
   text-shadow: 0 1px 10px rgba(0, 0, 0, .65);
 }
-/* YouTube's own buttons are the play, pause, and seek controls while a
-   video is showing. With no song there is nothing to control, so the room
-   play button, seek bar, and times stay hidden too. They show only in
-   audio-only with a song. Skip stays. */
-#app:not(.has-song) #toggle,
-#app:not(.has-song) #seek,
-#app:not(.has-song) #time-cur,
-#app:not(.has-song) #time-dur,
-#app.video-on.has-song #toggle,
-#app.video-on.has-song #seek,
-#app.video-on.has-song #time-cur,
-#app.video-on.has-song #time-dur { display: none; }
-#app.video-on.has-song .controls { margin-bottom: 8px; }
-#app.video-on.has-song .reactions { margin-bottom: 8px; }
-#app.video-on.has-song .message-form { margin-bottom: 0; }
-#app.video-on.has-song .room-more {
+#app.has-song .controls { margin-bottom: 8px; }
+#app.has-song .reactions { margin-bottom: 8px; }
+#app.has-song .message-form { margin-bottom: 0; }
+#app.has-song .room-more {
   max-width: 880px;
   margin: 0 auto;
   padding: 16px 12px 36px;
@@ -463,16 +428,16 @@ input[type="range"] {
 /* Phones: the player is only as tall as the 16:9 picture, and the title
    sits just under it. Wider windows keep the viewport-filling player. */
 @media (max-width: 720px) {
-  #app.video-on.has-song .stage {
+  #app.has-song .stage {
     display: block;
     height: auto;
     overflow: visible;
     background: transparent;
   }
-  #app.video-on.has-song .player-slot {
+  #app.has-song .player-slot {
     display: contents;
   }
-  #app.video-on.has-song .player-host {
+  #app.has-song .player-host {
     position: relative;
     inset: auto;
     flex: none;
@@ -480,7 +445,7 @@ input[type="range"] {
     height: auto;
     aspect-ratio: 16 / 9;
   }
-  #app.video-on.has-song .room-panel {
+  #app.has-song .room-panel {
     position: static;
     left: auto;
     right: auto;

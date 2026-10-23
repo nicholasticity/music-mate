@@ -41,25 +41,25 @@
             <strong id="room-id"></strong>
           </div>
           <div class="row gap-s">
-            <button id="video-toggle" title="Show or hide the video" aria-label="Video" aria-pressed="true">📺</button>
             <button id="copy-link" title="Copy invite link">Invite</button>
           </div>
         </header>
 
-        <!-- The YouTube player. With video on it fills the room under the top bar;
-             with it off it stays rendered but invisible (browsers may stop loading
-             media in display:none or tiny frames) and the cover art shows instead.
-             This wrapper is display:contents unless the wide layout needs a box
-             to anchor the room controls above YouTube's own bar. -->
+        <!-- The YouTube player fills the room under the top bar while a song
+             plays. With nothing playing it stays mounted but out of the layout
+             (browsers may stop loading media in display:none). This wrapper is
+             display:contents unless the wide layout needs a box to anchor the
+             room controls above YouTube's own bar. -->
         <div class="player-slot">
-        <div id="player-host" class="player-host"><div id="player"></div></div>
+        <div id="player-host" class="player-host">
+          <div id="player"></div>
+          <button id="sync-btn" class="art-overlay" hidden>Tap to start audio</button>
+        </div>
 
         <div class="room-panel">
           <div class="now-card">
             <div id="art-box" class="art">
-              <img id="art" alt="" hidden>
               <div id="art-empty" class="art-empty">♪</div>
-              <button id="sync-btn" class="art-overlay" hidden>Tap to start audio</button>
             </div>
             <div class="now">
               <div id="now-title" class="now-title">Nothing playing</div>
@@ -68,11 +68,7 @@
           </div>
 
           <div class="row controls">
-            <button id="toggle" class="primary round" title="Play / pause">▶</button>
             <button id="skip" class="round" title="Skip">⏭</button>
-            <span id="time-cur" class="muted small mono">0:00</span>
-            <input id="seek" type="range" min="0" max="0" step="1" value="0">
-            <span id="time-dur" class="muted small mono">0:00</span>
           </div>
 
           <!-- Tap to react, hold to spam. Keep in sync with REACTIONS in server.js. -->

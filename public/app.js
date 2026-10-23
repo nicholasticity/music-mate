@@ -22,15 +22,14 @@
     createRoom: $('create-room'), joinCodeForm: $('join-code-form'), joinCode: $('join-code'),
     joinForm: $('join-form'), joinName: $('join-name'), joinRoomId: $('join-room-id'),
     roomId: $('room-id'), copyLink: $('copy-link'),
-    playerContainer: $('player'), art: $('art'), artEmpty: $('art-empty'), syncBtn: $('sync-btn'),
+    playerContainer: $('player'), syncBtn: $('sync-btn'),
     nowTitle: $('now-title'), nowMeta: $('now-meta'),
-    toggle: $('toggle'), skip: $('skip'), seek: $('seek'), timeCur: $('time-cur'), timeDur: $('time-dur'),
+    skip: $('skip'),
     addForm: $('add-form'), addUrl: $('add-url'), addError: $('add-error'),
     queue: $('queue'), queueEmpty: $('queue-empty'), members: $('members'), toast: $('toast'),
     reactions: $('reactions'), reactionLayer: $('reaction-layer'),
     messageForm: $('message-form'), messageInput: $('message-input'),
     voiceBtn: $('voice-btn'), voiceTray: $('voice-tray'), recordingStatus: $('recording-status'),
-    videoToggle: $('video-toggle'), playerHost: $('player-host'), artBox: $('art-box'),
   };
 
   const roomMatch = location.pathname.match(/^\/r\/([\w-]{3,40})\/?$/);
@@ -74,7 +73,6 @@
   let loadedItemId = null;
   let stuckTicks = 0;
   let loadGraceUntil = 0;
-  let seeking = false;
   let lastSample = null;          // { time, at } of the player clock, to spot user seeks
   let userGraceUntil = 0;         // no drift correction or transport forcing until this time
   let pauseConfirm = null;
@@ -94,12 +92,10 @@
   let voiceNotes = [];      // incoming voice messages in the tray
   let voicePlaying = null;
   let savedVolume = null;   // music volume before ducking
-  let videoOn = localStorage.getItem('video') !== 'off';
   const voiceAudio = new Audio();
 
   function enterRoom(name) {
     els.roomId.textContent = roomId;
-    applyVideoMode();
 
     // Room and name travel with the connection, so the server has us in the
     // room before handling anything we send. The playback tick corrects any
@@ -383,7 +379,6 @@
     detectUserSeek();
     if (!inGrace() && deferredRemote) applyState();
     else correctDrift();
-    updateProgress();
 
     // Browsers may block autoplay (e.g. after a reload). If we should be
     // playing but aren't, offer a button so the user can unlock audio.
@@ -398,32 +393,16 @@
   }
 
   // ---------- Rendering ----------
-  function applyVideoMode() {
-    els.app.classList.toggle('video-on', videoOn);
-    els.videoToggle.classList.toggle('active', videoOn);
-    els.videoToggle.setAttribute('aria-pressed', String(videoOn));
-    // The "tap to start audio" button sits over whichever is visible.
-    (videoOn ? els.playerHost : els.artBox).append(els.syncBtn);
-  }
-
   function render() {
-    const { current, queue, members, playing } = state;
+    const { current, queue, members } = state;
 
     els.app.classList.toggle('has-song', !!current);
 
-    if (current && els.art.getAttribute('src') !== thumbnailUrl(current.videoId)) {
-      els.art.src = thumbnailUrl(current.videoId);
-    }
-    els.art.hidden = !current;
-    els.artEmpty.hidden = !!current;
     els.nowTitle.textContent = current ? current.title : 'Nothing playing';
     els.nowMeta.textContent = current
       ? [current.author, `added by ${current.addedBy}`].filter(Boolean).join(' · ')
       : 'Paste a YouTube link below to start';
-    els.toggle.textContent = playing ? '⏸' : '▶';
-    els.toggle.disabled = !current;
     els.skip.disabled = !current;
-    els.seek.disabled = !current;
 
     els.queue.replaceChildren(...queue.map(renderQueueItem));
     els.queueEmpty.hidden = queue.length > 0;
@@ -433,8 +412,6 @@
       chip.textContent = name;
       return chip;
     }));
-
-    updateProgress();
   }
 
   function renderQueueItem(item) {
@@ -464,35 +441,9 @@
     return li;
   }
 
-  function updateProgress() {
-    const duration = playerReady && state && state.current ? player.getDuration() || 0 : 0;
-    // While a native scrub is in flight, follow the player instead of the
-    // old room clock so the room's own bar doesn't leap backwards.
-    const live = !seeking && playerReady && state && state.current && (pendingSeekAt != null || Date.now() < userGraceUntil);
-    const position = live
-      ? readPlayerTime()
-      : Math.min(expectedPosition(), duration || Infinity);
-    els.seek.max = Math.floor(duration);
-    if (!seeking) els.seek.value = Math.floor(position);
-    els.timeCur.textContent = formatTime(seeking ? Number(els.seek.value) : position);
-    els.timeDur.textContent = formatTime(duration);
-  }
-
   // ---------- Controls ----------
   function bindControls() {
-    els.toggle.addEventListener('click', () => {
-      socket.emit(state && state.playing ? 'pause' : 'play');
-    });
     els.skip.addEventListener('click', () => socket.emit('skip'));
-
-    els.seek.addEventListener('input', () => {
-      seeking = true;
-      els.timeCur.textContent = formatTime(Number(els.seek.value));
-    });
-    els.seek.addEventListener('change', () => {
-      seeking = false;
-      socket.emit('seek', { position: Number(els.seek.value) });
-    });
 
     els.syncBtn.addEventListener('click', () => {
       els.syncBtn.hidden = true;
@@ -549,12 +500,6 @@
           spawnMessage(res.text, 'You');
         }
       });
-    });
-
-    els.videoToggle.addEventListener('click', () => {
-      videoOn = !videoOn;
-      localStorage.setItem('video', videoOn ? 'on' : 'off');
-      applyVideoMode();
     });
   }
 
