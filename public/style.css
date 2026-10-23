@@ -439,9 +439,14 @@ input[type="range"] {
 #app.video-on.has-song .now-title {
   text-shadow: 0 1px 10px rgba(0, 0, 0, .65);
 }
-/* YouTube's own buttons are the play, pause, and seek controls while the
-   video is showing. Skip stays. Audio-only (no .video-on) keeps a play
-   button and seek bar. */
+/* YouTube's own buttons are the play, pause, and seek controls while a
+   video is showing. With no song there is nothing to control, so the room
+   play button, seek bar, and times stay hidden too. They show only in
+   audio-only with a song. Skip stays. */
+#app:not(.has-song) #toggle,
+#app:not(.has-song) #seek,
+#app:not(.has-song) #time-cur,
+#app:not(.has-song) #time-dur,
 #app.video-on.has-song #toggle,
 #app.video-on.has-song #seek,
 #app.video-on.has-song #time-cur,
