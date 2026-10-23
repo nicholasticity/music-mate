@@ -459,6 +459,12 @@ body:not(.pip) #app.video-on.has-song .now-card {
 body:not(.pip) #app.video-on.has-song .now-title {
   text-shadow: 0 1px 10px rgba(0, 0, 0, .65);
 }
+/* YouTube's own buttons are the play, pause, and seek controls while the
+   video is showing. Skip stays. Audio-only (no .video-on) keeps these. */
+#app.video-on.has-song #toggle,
+#app.video-on.has-song #seek,
+#app.video-on.has-song #time-cur,
+#app.video-on.has-song #time-dur { display: none; }
 body:not(.pip) #app.video-on.has-song .controls { margin-bottom: 8px; }
 body:not(.pip) #app.video-on.has-song .reactions { margin-bottom: 8px; }
 body:not(.pip) #app.video-on.has-song .message-form { margin-bottom: 0; }
