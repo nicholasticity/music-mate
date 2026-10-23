@@ -450,3 +450,29 @@ body:not(.pip) #app.video-on.has-song .room-more {
   margin: 0 auto;
   padding: 16px 12px 36px;
 }
+
+/* Phones: the player is only as tall as the 16:9 picture, and the title
+   sits just under it. Wider windows keep the viewport-filling player. */
+@media (max-width: 720px) {
+  body:not(.pip) #app.video-on.has-song .stage {
+    display: block;
+    height: auto;
+    overflow: visible;
+    background: transparent;
+  }
+  body:not(.pip) #app.video-on.has-song .player-host {
+    flex: none;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+  body:not(.pip) #app.video-on.has-song .room-panel {
+    position: static;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    z-index: auto;
+    padding: 10px 12px 0;
+    background: none;
+  }
+}
