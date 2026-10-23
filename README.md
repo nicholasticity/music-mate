@@ -1,7 +1,6 @@
 # Listen Together
 
-Shared YouTube listening rooms. The video shows by default;
-the 📺 button switches to audio-only, with the thumbnail as cover art.
+Shared YouTube listening rooms. A playing song always shows the YouTube video.
 
 - Create a room, share the link, and everyone hears the same thing in sync.
 - Anyone in the room can paste YouTube links, play/pause, seek, skip, and reorder the queue.
@@ -35,9 +34,9 @@ then takes a while to wake it), and any open rooms are lost when it sleeps or re
   Rooms live in memory and are dropped 30 minutes after the last person leaves.
 - `public/app.js` — joins the room, estimates server clock offset, and keeps the YouTube
   IFrame player within 1.5 s of the shared clock.
-- In audio-only mode the YouTube player is rendered at 200×200 with `opacity: 0` rather
-  than `display: none`, since browsers may not load or play media in hidden frames.
-  YouTube's API terms expect the player to be visible, so the video is on by default.
+- While a song is playing the YouTube video is shown (the API terms expect a visible
+  player). With nothing playing, the player stays mounted at 200×200 with `opacity: 0`
+  rather than `display: none`, so the browser will still load the next one.
 
 ## Platform notes
 
