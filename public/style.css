@@ -172,7 +172,7 @@ input[type="range"] {
 .player-slot { display: contents; }
 #video-toggle.active { background: var(--accent); }
 
-.controls { margin-bottom: 14px; }
+.controls { margin-bottom: 18px; }
 
 /* Reactions: tap to send, hold to spam */
 .reactions { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 14px; }
@@ -451,7 +451,7 @@ input[type="range"] {
 #app.video-on.has-song #seek,
 #app.video-on.has-song #time-cur,
 #app.video-on.has-song #time-dur { display: none; }
-#app.video-on.has-song .controls { margin-bottom: 8px; }
+#app.video-on.has-song .controls { margin-bottom: 16px; }
 #app.video-on.has-song .reactions { margin-bottom: 8px; }
 #app.video-on.has-song .message-form { margin-bottom: 0; }
 #app.video-on.has-song .room-more {
