@@ -1,5 +1,6 @@
 (() => {
   const DRIFT_TOLERANCE = 1.5; // seconds of drift before we re-seek
+  const SEEK_JUMP = 0.75; // a user scrub moves faster than playback; drift does not
   const TICK_MS = 500;
   const LOAD_GRACE_MS = 6000; // time a fresh player gets before we suspect blocked autoplay
   const SPAM_INTERVAL_MS = 110; // repeat rate while a reaction is held (server allows ~10/s)
@@ -274,7 +275,7 @@
         lastSample = { time: actual, at: now };
         return false;
       }
-      const moved = lastSample && Math.abs(actual - lastSample.time) > DRIFT_TOLERANCE;
+      const moved = lastSample && Math.abs(actual - lastSample.time) > SEEK_JUMP;
       if (!moved) {
         lastSample = { time: actual, at: now };
         return false;
@@ -292,7 +293,9 @@
       const elapsed = (now - lastSample.at) / 1000;
       const delta = actual - lastSample.time;
       const expectedDelta = state.playing ? elapsed : 0;
-      if (delta > expectedDelta + DRIFT_TOLERANCE || delta < -DRIFT_TOLERANCE) jumped = true;
+      // Same seek event the room's seek bar sends. Playback itself only
+      // advances about one tick, so a larger leap is someone moving the bar.
+      if (delta > expectedDelta + SEEK_JUMP || delta < -SEEK_JUMP) jumped = true;
     }
     lastSample = { time: actual, at: now };
     if (!jumped) return false;
