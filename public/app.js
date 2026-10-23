@@ -26,7 +26,9 @@
     nowTitle: $('now-title'), nowMeta: $('now-meta'),
     skip: $('skip'),
     addForm: $('add-form'), addUrl: $('add-url'), addError: $('add-error'),
-    queue: $('queue'), queueEmpty: $('queue-empty'), members: $('members'), toast: $('toast'),
+    queue: $('queue'), queueEmpty: $('queue-empty'), toast: $('toast'),
+    memberAvatars: $('member-avatars'),
+    queueToggle: $('queue-toggle'), queuePanel: $('queue-panel'), queueBackdrop: $('queue-backdrop'),
     reactions: $('reactions'), reactionLayer: $('reaction-layer'),
     messageForm: $('message-form'), messageInput: $('message-input'),
     voiceBtn: $('voice-btn'), voiceTray: $('voice-tray'), recordingStatus: $('recording-status'),
@@ -93,6 +95,46 @@
   let voicePlaying = null;
   let savedVolume = null;   // music volume before ducking
   const voiceAudio = new Audio();
+
+  // Desktop starts open. The phone drawer starts shut so it doesn't cover
+  // the player. Only an explicit toggle is stored — resizing must not
+  // overwrite a choice made on the other layout.
+  const QUEUE_PANEL_KEY = 'queuePanel';
+  const AVATAR_LIMIT = 5;
+  const narrowQuery = window.matchMedia('(max-width: 720px)');
+
+  function isNarrow() {
+    return narrowQuery.matches;
+  }
+
+  function rememberedQueueOpen() {
+    return localStorage.getItem(QUEUE_PANEL_KEY) !== 'closed';
+  }
+
+  let queueOpen = isNarrow() ? false : rememberedQueueOpen();
+
+  function applyQueuePanel() {
+    const narrow = isNarrow();
+    els.app.classList.toggle('queue-open', queueOpen);
+    els.queueToggle.classList.toggle('active', queueOpen);
+    els.queueToggle.setAttribute('aria-pressed', String(queueOpen));
+    els.queueToggle.setAttribute('aria-expanded', String(queueOpen));
+    els.queueBackdrop.hidden = !(queueOpen && narrow);
+    els.queuePanel.inert = !queueOpen;
+    els.queuePanel.setAttribute('aria-hidden', queueOpen ? 'false' : 'true');
+  }
+
+  function setQueueOpen(open, persist) {
+    queueOpen = open;
+    if (persist) localStorage.setItem(QUEUE_PANEL_KEY, open ? 'open' : 'closed');
+    applyQueuePanel();
+  }
+
+  narrowQuery.addEventListener('change', () => {
+    queueOpen = isNarrow() ? false : rememberedQueueOpen();
+    applyQueuePanel();
+  });
+  applyQueuePanel();
 
   function enterRoom(name) {
     els.roomId.textContent = roomId;
@@ -394,24 +436,46 @@
 
   // ---------- Rendering ----------
   function render() {
-    const { current, queue, members } = state;
+    const { current, queue, members = [] } = state;
 
     els.app.classList.toggle('has-song', !!current);
 
     els.nowTitle.textContent = current ? current.title : 'Nothing playing';
     els.nowMeta.textContent = current
       ? [current.author, `added by ${current.addedBy}`].filter(Boolean).join(' · ')
-      : 'Paste a YouTube link below to start';
+      : 'Paste a YouTube link to start';
     els.skip.disabled = !current;
 
     els.queue.replaceChildren(...queue.map(renderQueueItem));
     els.queueEmpty.hidden = queue.length > 0;
 
-    els.members.replaceChildren(...members.map((name) => {
-      const chip = document.createElement('span');
-      chip.textContent = name;
-      return chip;
-    }));
+    renderMembers(members);
+  }
+
+  function renderMembers(names) {
+    const shown = names.slice(0, AVATAR_LIMIT);
+    const extra = names.length - shown.length;
+    const nodes = shown.map((name) => {
+      const avatar = document.createElement('span');
+      avatar.className = 'avatar';
+      avatar.role = 'listitem';
+      avatar.title = name;
+      avatar.setAttribute('aria-label', name);
+      avatar.textContent = initials(name);
+      avatar.style.background = colorFromName(name);
+      return avatar;
+    });
+    if (extra > 0) {
+      const more = document.createElement('span');
+      more.className = 'avatar avatar-more';
+      more.role = 'listitem';
+      const label = `${extra} more: ${names.slice(AVATAR_LIMIT).join(', ')}`;
+      more.title = label;
+      more.setAttribute('aria-label', label);
+      more.textContent = `+${extra}`;
+      nodes.push(more);
+    }
+    els.memberAvatars.replaceChildren(...nodes);
   }
 
   function renderQueueItem(item) {
@@ -501,6 +565,9 @@
         }
       });
     });
+
+    els.queueToggle.addEventListener('click', () => setQueueOpen(!queueOpen, true));
+    els.queueBackdrop.addEventListener('click', () => setQueueOpen(false, true));
   }
 
   // ---------- Reactions ----------
@@ -821,6 +888,24 @@
 
   function thumbnailUrl(videoId) {
     return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+  }
+
+  // Initials are one letter, or two when the name has more than one word.
+  function initials(name) {
+    const parts = String(name).trim().split(/\s+/).filter(Boolean);
+    const glyph = (word) => Array.from(word)[0] || '';
+    if (!parts.length) return '?';
+    if (parts.length === 1) return glyph(parts[0]).toUpperCase();
+    return (glyph(parts[0]) + glyph(parts[parts.length - 1])).toUpperCase();
+  }
+
+  function colorFromName(name) {
+    let hash = 0;
+    for (const char of String(name)) hash = Math.imul(hash, 31) + char.codePointAt(0);
+    const hue = (hash >>> 0) % 360;
+    // Keep yellows and greens dark enough for white initials.
+    const light = hue > 40 && hue < 190 ? 32 : 42;
+    return `hsl(${hue} 62% ${light}%)`;
   }
 
   function formatTime(seconds) {

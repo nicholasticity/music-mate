@@ -33,15 +33,19 @@
   <main id="room" hidden>
     <div id="app">
       <!-- stage groups the picture with the controls that sit on or under it.
-           room-more is the queue, which stays in normal flow below the picture. -->
+           The queue is the panel beside the stage, not a second copy of it. -->
       <div class="stage">
         <header class="row header">
           <div class="room-title">
             <span class="muted small">Room</span>
             <strong id="room-id"></strong>
           </div>
-          <div class="row gap-s">
-            <button id="copy-link" title="Copy invite link">Invite</button>
+          <div class="header-end">
+            <div id="member-avatars" class="member-avatars" role="list" aria-label="People in this room"></div>
+            <div class="row gap-s">
+              <button id="queue-toggle" title="Show or hide the queue" aria-label="Show or hide the queue" aria-pressed="true" aria-expanded="true" aria-controls="queue-panel">☰</button>
+              <button id="copy-link" title="Copy invite link">Invite</button>
+            </div>
           </div>
         </header>
 
@@ -63,7 +67,7 @@
             </div>
             <div class="now">
               <div id="now-title" class="now-title">Nothing playing</div>
-              <div id="now-meta" class="muted small">Paste a YouTube link below to start</div>
+              <div id="now-meta" class="muted small">Paste a YouTube link to start</div>
             </div>
           </div>
 
@@ -93,9 +97,7 @@
         </div>
       </div>
 
-      <div id="reaction-layer" class="reaction-layer" aria-hidden="true"></div>
-
-      <div class="room-more">
+      <aside id="queue-panel" class="queue-panel" aria-label="Queue">
         <form id="add-form" class="row">
           <input id="add-url" placeholder="Paste a YouTube link…" autocomplete="off">
           <button type="submit" class="primary">Add</button>
@@ -105,10 +107,9 @@
         <h2 class="section">Up next</h2>
         <ol id="queue" class="queue"></ol>
         <p id="queue-empty" class="muted small">Queue is empty.</p>
-
-        <h2 class="section">Listening</h2>
-        <div id="members" class="members"></div>
-      </div>
+      </aside>
+      <div id="queue-backdrop" class="queue-backdrop" hidden></div>
+      <div id="reaction-layer" class="reaction-layer" aria-hidden="true"></div>
 
       <div id="toast" class="toast" hidden></div>
     </div>
