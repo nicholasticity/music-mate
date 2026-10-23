@@ -5,7 +5,7 @@ the 📺 button switches to audio-only, with the thumbnail as cover art.
 
 - Create a room, share the link, and everyone hears the same thing in sync.
 - Anyone in the room can paste YouTube links, play/pause, seek, skip, and reorder the queue.
-- Tap a reaction (🥰 😍 😘 💕 💖) to float it up everyone's screen; hold to spam.
+- Tap a reaction (🥰 😘 💕 😂 🔥 👏) to float it up everyone's screen; hold to spam.
 - Send a short message that floats up once as a bubble with your name.
 - Hold 🎤 to record a voice message (up to 30 s). Others tap it to play it once; it
   is never stored, and the music dips while it plays.
