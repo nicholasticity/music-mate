@@ -82,10 +82,59 @@ input[type="range"] {
   accent-color: var(--accent);
 }
 
-/* Room layout */
+/* Room layout. The stage takes whatever width the queue panel leaves. */
 #room { max-width: 640px; margin: 0 auto; padding: 16px; }
-.header { justify-content: space-between; margin-bottom: 12px; }
-.room-title { display: flex; flex-direction: column; }
+#app { display: flex; align-items: flex-start; gap: 16px; }
+.stage { flex: 1 1 auto; min-width: 0; }
+.header { justify-content: space-between; gap: 8px; margin-bottom: 12px; min-width: 0; }
+.room-title { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.room-title span,
+.room-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-title strong { display: block; }
+.header-end { display: flex; align-items: center; gap: 10px; margin-left: auto; flex: none; }
+.header-end button {
+  height: 36px;
+  padding: 0 10px;
+  display: inline-grid;
+  place-items: center;
+}
+#queue-toggle {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  font-size: 16px;
+}
+
+/* Overlapping initial circles, Confluence-style. The ring matches the bar
+   behind them so the stack reads as separate people. */
+.member-avatars { display: flex; align-items: center; }
+.member-avatars:empty { display: none; }
+.avatar {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  margin-left: -8px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: #fff;
+  box-shadow: 0 0 0 2px var(--bg);
+  user-select: none;
+}
+.member-avatars .avatar:first-child { margin-left: 0; }
+.avatar-more {
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 10px;
+  letter-spacing: 0;
+}
 
 .now-card {
   display: flex;
@@ -170,7 +219,7 @@ input[type="range"] {
 #app.video-on.has-song .player-host iframe { pointer-events: auto; }
 .player-host .art-overlay { pointer-events: auto; font-size: 16px; }
 .player-slot { display: contents; }
-#video-toggle.active { background: var(--accent); }
+#video-toggle.active, #queue-toggle.active { background: var(--accent); }
 
 .controls { margin-bottom: 18px; }
 
@@ -310,13 +359,38 @@ input[type="range"] {
 .queue .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue button { padding: 4px 8px; font-size: 12px; }
 
-.members { display: flex; flex-wrap: wrap; gap: 6px; }
-.members span { background: var(--panel); border-radius: 999px; padding: 4px 10px; font-size: 13px; }
+/* Queue dock. Desktop: a column beside the stage. Phones: a drawer. */
+.queue-panel {
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  flex: none;
+  min-width: 0;
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 12px;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  position: sticky;
+  top: 16px;
+  overscroll-behavior: contain;
+}
+.queue-panel .section { margin-top: 16px; }
+.queue-panel .queue li { background: var(--panel-2); }
+.queue-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  background: rgba(8, 8, 14, .55);
+  cursor: pointer;
+}
 
 .toast {
   position: fixed;
   left: 50%;
   bottom: 24px;
+  z-index: 50;
   transform: translateX(-50%);
   background: var(--panel-2);
   padding: 10px 16px;
@@ -329,8 +403,9 @@ input[type="range"] {
    viewport. The embed itself is pinned to the top of that box and kept at
    16:9 (or the box, when the box is shorter) so YouTube's letterbox sits
    below the picture instead of between the bar and the video. Nothing is
-   scaled or cropped. Playback controls sit over the lower edge; the queue
-   sits just below. Audio-only (no .video-on) is unchanged. */
+   scaled or cropped. Playback controls sit over the lower edge. An open
+   queue panel takes width from the stage; the picture still meets both
+   edges of the bar. Audio-only (no .video-on) is unchanged. */
 #room:has(#app.video-on.has-song) {
   max-width: none;
   width: 100%;
@@ -338,12 +413,17 @@ input[type="range"] {
   padding: 0;
 }
 
+#app.video-on.has-song {
+  align-items: stretch;
+  gap: 0;
+}
 #app.video-on.has-song .stage {
   position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;
   height: 100dvh;
+  min-height: 0;
   background: #000;
   overflow: hidden;
 }
@@ -365,6 +445,7 @@ input[type="range"] {
   flex: 1;
   text-shadow: 0 1px 4px rgba(0, 0, 0, .6);
 }
+#app.video-on.has-song .avatar { box-shadow: 0 0 0 2px #12121a; }
 #app.video-on.has-song .header .room-title strong {
   display: block;
   overflow: hidden;
@@ -454,11 +535,6 @@ input[type="range"] {
 #app.video-on.has-song .controls { margin-bottom: 16px; }
 #app.video-on.has-song .reactions { margin-bottom: 8px; }
 #app.video-on.has-song .message-form { margin-bottom: 0; }
-#app.video-on.has-song .room-more {
-  max-width: 880px;
-  margin: 0 auto;
-  padding: 16px 12px 36px;
-}
 
 /* Phones: the player is only as tall as the 16:9 picture, and the title
    sits just under it. Wider windows keep the viewport-filling player. */
@@ -490,5 +566,72 @@ input[type="range"] {
     z-index: auto;
     padding: 10px 12px 0;
     background: none;
+  }
+}
+
+/* Wide windows: remember an open panel by giving it a column. A closed
+   panel leaves the stage the full width of the room. */
+@media (min-width: 721px) {
+  #room:has(#app.queue-open) { max-width: 960px; }
+  #room:has(#app.video-on.has-song) { max-width: none; }
+  #app:not(.queue-open) .queue-panel { display: none; }
+  .queue-backdrop { display: none !important; }
+  #app.video-on.has-song .queue-panel {
+    position: relative;
+    top: auto;
+    align-self: stretch;
+    width: 300px;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    max-height: none;
+    overflow: auto;
+    border-radius: 0;
+    background: #12121a;
+    border-left: 1px solid rgba(255, 255, 255, .08);
+    padding:
+      max(14px, env(safe-area-inset-top))
+      max(14px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom))
+      14px;
+  }
+}
+
+/* Phones: the queue is a drawer over the room, shut until opened. The
+   stage layout, including the title under the picture, stays put. */
+@media (max-width: 720px) {
+  #app { display: block; }
+  #room:has(#app.queue-open) { max-width: 640px; }
+  .queue-panel,
+  #app.video-on.has-song .queue-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    z-index: 40;
+    width: min(320px, calc(100vw - 56px));
+    height: auto;
+    max-height: none;
+    border-radius: 0;
+    border-left: 0;
+    background: var(--bg);
+    box-shadow: -12px 0 40px rgba(0, 0, 0, .45);
+    transform: translateX(100%);
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform .2s ease, visibility 0s linear .2s;
+    padding:
+      max(14px, env(safe-area-inset-top))
+      max(14px, env(safe-area-inset-right))
+      max(14px, env(safe-area-inset-bottom))
+      14px;
+  }
+  #app.queue-open .queue-panel,
+  #app.video-on.has-song.queue-open .queue-panel {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+    transition: transform .2s ease;
   }
 }
