@@ -54,7 +54,10 @@
 
         <!-- The YouTube player. With video on it fills the room under the top bar;
              with it off it stays rendered but invisible (browsers may stop loading
-             media in display:none or tiny frames) and the cover art shows instead. -->
+             media in display:none or tiny frames) and the cover art shows instead.
+             player-frame is display:contents unless the wide layout needs a box
+             to anchor the floating controls above YouTube's own bar. -->
+        <div class="player-frame">
         <div id="player-host" class="player-host"><div id="player"></div></div>
 
         <div class="room-panel">
@@ -95,6 +98,7 @@
             <button type="button" id="voice-btn" class="voice-btn" aria-label="Hold to record a voice message">🎤</button>
             <button type="submit" aria-label="Send message">💌</button>
           </form>
+        </div>
         </div>
       </div>
 

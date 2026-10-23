@@ -148,8 +148,8 @@ input[type="range"] {
   z-index: -1;
 }
 .player-host #player, .player-host iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-/* Video on: show the player full width above the title instead of the cover art.
-   Clicks still pass through, so the shared controls stay the only way to pause. */
+/* Video on: show the player above the title. Pointer events are enabled
+   below so YouTube's own controls work alongside the room controls. */
 #app.video-on.has-song .player-host {
   position: relative;
   left: auto;
@@ -165,7 +165,11 @@ input[type="range"] {
   background: #000;
 }
 #app.video-on.has-song .art { display: none; }
+#app.video-on.has-song .player-host,
+#app.video-on.has-song .player-host #player,
+#app.video-on.has-song .player-host iframe { pointer-events: auto; }
 .player-host .art-overlay { pointer-events: auto; font-size: 16px; }
+.player-frame { display: contents; }
 #video-toggle.active { background: var(--accent); }
 
 .controls { margin-bottom: 14px; }
@@ -388,13 +392,21 @@ body:not(.pip) #app.video-on.has-song .header .room-title strong {
   white-space: nowrap;
 }
 
-body:not(.pip) #app.video-on.has-song .player-host {
+body:not(.pip) #app.video-on.has-song .player-frame {
   position: relative;
-  left: auto;
-  bottom: auto;
+  display: block;
   flex: 1 1 auto;
+  min-height: 0;
+  container-type: size;
+}
+body:not(.pip) #app.video-on.has-song .player-host {
+  position: absolute;
+  inset: 0;
+  left: 0;
+  bottom: 0;
+  flex: none;
   width: 100%;
-  height: auto;
+  height: 100%;
   min-height: 0;
   aspect-ratio: auto;
   margin: 0;
@@ -424,7 +436,11 @@ body:not(.pip) #app.video-on.has-song .room-panel {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  /* The panel's top edge lands on the bottom of the 16:9 picture, then it
+     shifts up by its own height plus a strip for YouTube's control bar. */
+  top: min(100cqb, calc(100cqi * 9 / 16));
+  bottom: auto;
+  transform: translateY(calc(-100% - 52px));
   z-index: 5;
   padding:
     72px
@@ -460,7 +476,12 @@ body:not(.pip) #app.video-on.has-song .room-more {
     overflow: visible;
     background: transparent;
   }
+  body:not(.pip) #app.video-on.has-song .player-frame {
+    display: contents;
+  }
   body:not(.pip) #app.video-on.has-song .player-host {
+    position: relative;
+    inset: auto;
     flex: none;
     width: 100%;
     height: auto;
@@ -470,7 +491,9 @@ body:not(.pip) #app.video-on.has-song .room-more {
     position: static;
     left: auto;
     right: auto;
+    top: auto;
     bottom: auto;
+    transform: none;
     z-index: auto;
     padding: 10px 12px 0;
     background: none;
